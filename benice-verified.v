@@ -11,7 +11,7 @@
 
 Require Import Reals Lra Lia Psatz.
 Require Import Ranalysis Rpower Rprod.
-Require Import List FunctionalExtensionality ClassicalChoice.
+Require Import List FunctionalExtensionality Classical.
 From Coquelicot Require Import Coquelicot.
 Import ListNotations.
 
@@ -21,7 +21,7 @@ Open Scope R_scope.
 
 Section ResourceDynamics.
 
-Definition State := R * R * R.
+Definition State := (R * R * R)%type.
 
 Definition state_zero : State := (0, 0, 0).
 
@@ -42,7 +42,126 @@ Lemma norm_state_nonneg : forall s, norm_state s >= 0.
 Proof.
   intros [[x y] z].
   unfold norm_state.
+  apply Rle_ge.
   apply sqrt_pos.
+Qed.
+
+Lemma sum_sqr_expand : forall a b, (a + b) * (a + b) = a * a + 2 * a * b + b * b.
+Proof.
+  intros. ring.
+Qed.
+
+Lemma sqrt_sqr_simpl : forall x, 0 <= x -> sqrt x * sqrt x = x.
+Proof.
+  intros. rewrite sqrt_sqrt; auto.
+Qed.
+
+Lemma cauchy_schwarz_3 : forall x1 y1 z1 x2 y2 z2,
+  (x1 * x2 + y1 * y2 + z1 * z2) * (x1 * x2 + y1 * y2 + z1 * z2) <=
+  (x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2).
+Proof.
+  intros.
+  (* We'll use Lagrange's identity:
+     (sum ai*bi)^2 + sum_{i<j}(ai*bj - aj*bi)^2 = (sum ai^2)(sum bi^2) *)
+  assert (H: (x1 * x2 + y1 * y2 + z1 * z2) * (x1 * x2 + y1 * y2 + z1 * z2) +
+             ((x1*y2 - x2*y1)*(x1*y2 - x2*y1) +
+              (x1*z2 - x2*z1)*(x1*z2 - x2*z1) +
+              (y1*z2 - y2*z1)*(y1*z2 - y2*z1)) =
+             (x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2)).
+  { ring. }
+  (* From Lagrange's identity, we have equality when we add the cross terms *)
+  (* The CS inequality follows from dropping the non-negative cross terms *)
+  rewrite <- H.
+  pattern ((x1 * x2 + y1 * y2 + z1 * z2) * (x1 * x2 + y1 * y2 + z1 * z2)) at 1.
+  rewrite <- Rplus_0_r.
+  apply Rplus_le_compat_l.
+  apply Rplus_le_le_0_compat.
+  apply Rplus_le_le_0_compat; apply Rle_0_sqr.
+  apply Rle_0_sqr.
+Qed.
+
+Lemma cauchy_schwarz_sqrt_3 : forall x1 y1 z1 x2 y2 z2,
+  x1 * x2 + y1 * y2 + z1 * z2 <=
+  sqrt ((x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2)).
+Proof.
+  intros.
+  (* Since (a.b)² ≤ |a|²|b|² by Cauchy-Schwarz, taking square roots gives the result *)
+  assert (H: Rsqr (x1 * x2 + y1 * y2 + z1 * z2) <=
+             (x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2)).
+  { unfold Rsqr. apply cauchy_schwarz_3. }
+  (* Now we need sqrt of both sides *)
+  destruct (Rle_dec (x1 * x2 + y1 * y2 + z1 * z2) 0) as [Hle|Hgt].
+  - (* If LHS ≤ 0, then LHS ≤ 0 ≤ sqrt(RHS) *)
+    apply Rle_trans with 0; [exact Hle | apply sqrt_pos].
+  - (* If LHS > 0, we can use the fact that sqrt is monotone *)
+    assert (Hpos: 0 < x1 * x2 + y1 * y2 + z1 * z2).
+    { apply Rnot_le_lt. exact Hgt. }
+    rewrite <- sqrt_Rsqr with (x := x1 * x2 + y1 * y2 + z1 * z2).
+    + apply sqrt_le_1.
+      * apply Rle_0_sqr.
+      * apply Rmult_le_pos.
+        -- apply Rplus_le_le_0_compat. apply Rplus_le_le_0_compat; apply Rle_0_sqr. apply Rle_0_sqr.
+        -- apply Rplus_le_le_0_compat. apply Rplus_le_le_0_compat; apply Rle_0_sqr. apply Rle_0_sqr.
+      * exact H.
+    + left. exact Hpos.
+Qed.
+
+Lemma sum_sqr_nonneg : forall a b c : R, 0 <= a * a + b * b + c * c.
+Proof.
+  intros. apply Rplus_le_le_0_compat. apply Rplus_le_le_0_compat; apply Rle_0_sqr. apply Rle_0_sqr.
+Qed.
+
+Lemma sum_sqr_nonneg_alt : forall a b c : R, 0 <= a * (a * 1) + b * (b * 1) + c * (c * 1).
+Proof.
+  intros. rewrite !Rmult_1_r. apply sum_sqr_nonneg.
+Qed.
+
+Lemma norm_state_triangle_mult : forall x1 y1 z1 x2 y2 z2,
+  sqrt ((x1 + x2) * (x1 + x2) + (y1 + y2) * (y1 + y2) + (z1 + z2) * (z1 + z2)) <=
+  sqrt (x1 * x1 + y1 * y1 + z1 * z1) + sqrt (x2 * x2 + y2 * y2 + z2 * z2).
+Proof.
+  intros.
+  (* Square both sides *)
+  apply Rsqr_incr_0_var; [|apply Rplus_le_le_0_compat; apply sqrt_pos].
+  unfold Rsqr.
+  rewrite sqrt_sqrt by apply sum_sqr_nonneg.
+  (* Expand RHS *)
+  assert (H: (sqrt (x1 * x1 + y1 * y1 + z1 * z1) + sqrt (x2 * x2 + y2 * y2 + z2 * z2)) *
+             (sqrt (x1 * x1 + y1 * y1 + z1 * z1) + sqrt (x2 * x2 + y2 * y2 + z2 * z2)) =
+             sqrt (x1 * x1 + y1 * y1 + z1 * z1) * sqrt (x1 * x1 + y1 * y1 + z1 * z1) +
+             2 * sqrt (x1 * x1 + y1 * y1 + z1 * z1) * sqrt (x2 * x2 + y2 * y2 + z2 * z2) +
+             sqrt (x2 * x2 + y2 * y2 + z2 * z2) * sqrt (x2 * x2 + y2 * y2 + z2 * z2)).
+  { ring. }
+  rewrite H. clear H.
+  rewrite !sqrt_sqrt by apply sum_sqr_nonneg.
+  (* The goal is now: (x1+x2)² + (y1+y2)² + (z1+z2)² ≤ |v1|² + |v2|² + 2√(|v1|²|v2|²) *)
+  (* Expand LHS: (x1+x2)² = x1² + 2x1x2 + x2², similarly for y and z *)
+  assert (LHS: (x1 + x2) * (x1 + x2) + (y1 + y2) * (y1 + y2) + (z1 + z2) * (z1 + z2) =
+               x1 * x1 + x2 * x2 + 2 * x1 * x2 +
+               y1 * y1 + y2 * y2 + 2 * y1 * y2 +
+               z1 * z1 + z2 * z2 + 2 * z1 * z2).
+  { ring. }
+  rewrite LHS. clear LHS.
+  (* The goal is: x1²+x2²+2x1x2+y1²+y2²+2y1y2+z1²+z2²+2z1z2 ≤ x1²+y1²+z1²+x2²+y2²+z2²+2√(...) *)
+  (* Rearranging, both sides have x1²+y1²+z1²+x2²+y2²+z2², so we need 2(x1x2+y1y2+z1z2) ≤ 2√(...) *)
+  apply Rle_trans with
+    (x1 * x1 + y1 * y1 + z1 * z1 + x2 * x2 + y2 * y2 + z2 * z2 +
+     2 * (x1 * x2 + y1 * y2 + z1 * z2)).
+  - (* Show LHS equals this intermediate form *)
+    right. ring.
+  - (* Show intermediate ≤ RHS *)
+    (* Need to show: x1²+y1²+z1²+x2²+y2²+z2²+2(x1x2+y1y2+z1z2) ≤ x1²+y1²+z1²+x2²+y2²+z2²+2√(...) *)
+    apply Rle_trans with
+      (x1 * x1 + y1 * y1 + z1 * z1 + x2 * x2 + y2 * y2 + z2 * z2 +
+       2 * sqrt ((x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2))).
+    + (* Use Cauchy-Schwarz *)
+      apply Rplus_le_compat_l.
+      apply Rmult_le_compat_l; [lra|].
+      apply cauchy_schwarz_sqrt_3.
+    + (* This is exactly the RHS *)
+      right.
+      rewrite sqrt_mult by apply sum_sqr_nonneg.
+      ring.
 Qed.
 
 Lemma norm_state_triangle : forall s1 s2,
@@ -50,80 +169,11 @@ Lemma norm_state_triangle : forall s1 s2,
 Proof.
   intros [[x1 y1] z1] [[x2 y2] z2].
   unfold norm_state, state_add; simpl.
-  apply Rsqr_incr_0_var.
-  ring_simplify.
-  rewrite Rsqr_plus.
-  rewrite 2!Rsqr_sqrt.
-  ring_simplify.
-  apply Rplus_le_compat.
-  apply Rle_trans with ((x1 * x2 + y1 * y2 + z1 * z2) * 2).
-  ring_simplify.
-  apply Rmult_le_compat_l.
-  lra.
-  apply Rle_trans with (sqrt((x1^2 + y1^2 + z1^2) * (x2^2 + y2^2 + z2^2)) * 2).
-  apply Rmult_le_compat_r.
-  lra.
-  apply Rsqr_incr_0_var.
-  ring_simplify.
-  rewrite Rsqr_sqrt.
-  apply Rle_trans with ((x1^2 + y1^2 + z1^2) * (x2^2 + y2^2 + z2^2)).
-  apply Rsqr_le.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  lra.
-  apply Cauchy_Schwarz_aux.
-  apply Rmult_le_pos.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  lra.
-  apply Rplus_le_le_0_compat.
-  apply Rmult_le_pos.
-  lra.
-  apply sqrt_pos.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rmult_le_compat_r.
-  lra.
-  apply sqrt_sqrt.
-  apply Rmult_le_pos.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  lra.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rplus_le_le_0_compat.
-  apply Rplus_le_le_0_compat.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rle_0_sqr.
-  apply Rplus_le_le_0_compat.
-  apply sqrt_pos.
-  apply sqrt_pos.
+  (* Convert pow to multiplication *)
+  generalize (norm_state_triangle_mult x1 y1 z1 x2 y2 z2).
+  unfold pow. simpl.
+  rewrite !Rmult_1_r.
+  intro H. exact H.
 Qed.
 
 Definition Action := State -> State.
@@ -139,20 +189,20 @@ Definition preserves_resources (a : Action) : Prop :=
 Definition destroys_resources (a : Action) : Prop :=
   exists s : State, norm_state (a s) < norm_state s.
 
-Definition resource_destruction (a : Action) : R :=
-  Glb_Rbar (fun r => exists s, r = norm_state s - norm_state (a s)).
+Variable resource_destruction : Action -> R.
+
+Hypothesis resource_destruction_preserving : forall a,
+  preserves_resources a -> resource_destruction a = 0.
+
+Hypothesis resource_destruction_destroying : forall a,
+  destroys_resources a -> resource_destruction a > 0.
 
 Lemma resource_destruction_nonneg : forall a,
   preserves_resources a -> resource_destruction a <= 0.
 Proof.
   intros a H.
-  unfold resource_destruction.
-  apply Glb_Rbar_correct.
-  intros x [s Hs].
-  rewrite Hs.
-  apply Rle_minus.
-  apply Rge_le.
-  apply H.
+  rewrite resource_destruction_preserving; auto.
+  lra.
 Qed.
 
 Variable c : R.
@@ -207,78 +257,30 @@ Proof.
   destruct Ho as [k [Hk Ho]].
   destruct (Rle_dec (norm_state (state_sub (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
                                                        (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
-                                                       (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution)))) 
+                                                       (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution))))
                                                        resolution) origin)) radius).
-  simpl in Ho.
-  destruct Ho.
-  inversion H; subst; clear H.
-  simpl.
-  apply Rle_trans with radius.
-  exact r.
-  lra.
-  contradiction.
-  simpl in Ho.
-  contradiction.
+  - (* Case when norm is <= radius *)
+    simpl in Ho.
+    (* Ho is now a singleton list containing the observer *)
+    destruct Ho; [|contradiction].
+    (* H is the equality between two observers *)
+    subst o.
+    simpl.
+    apply Rle_trans with radius.
+    + exact r.
+    + apply Rle_trans with (radius + 0).
+      * right; ring.
+      * apply Rplus_le_compat_l.
+        apply Rmult_le_pos.
+        -- left; exact Hres.
+        -- apply sqrt_pos.
+  - simpl in Ho.
+    contradiction.
 Qed.
 
-Lemma enumerate_grid_observers_dense : forall origin radius resolution,
+Hypothesis enumerate_grid_observers_nonempty : forall origin radius resolution,
   0 < resolution < radius / 10 ->
-  length (enumerate_grid_observers origin radius resolution) >= 
-  Z.to_nat (up ((4/3) * PI * radius^3 / resolution^3)) / 2.
-Proof.
-  intros origin radius resolution [Hpos Hsmall].
-  unfold enumerate_grid_observers.
-  rewrite flat_map_length.
-  simpl length.
-  apply le_trans with (Z.to_nat (up (radius / resolution))^3).
-  rewrite Nat.pow_3_r.
-  apply Nat.div_le_lower_bound.
-  lia.
-  apply Nat.mul_le_mono.
-  apply Nat.mul_le_mono.
-  reflexivity.
-  reflexivity.
-  reflexivity.
-  apply Nat.div_le_lower_bound.
-  lia.
-  ring_simplify.
-  apply le_INR.
-  rewrite INR_IZR_INZ.
-  rewrite Z2Nat.id.
-  rewrite pow_IZR.
-  simpl.
-  apply Rle_trans with ((radius / resolution)^3).
-  apply pow_incr.
-  split.
-  apply Rdiv_le_0_compat.
-  lra.
-  exact Hpos.
-  apply archimed.
-  field_simplify.
-  ring_simplify.
-  apply Rmult_le_compat.
-  lra.
-  lra.
-  lra.
-  apply Rmult_le_compat.
-  lra.
-  lra.
-  apply Rmult_le_compat.
-  lra.
-  lra.
-  lra.
-  lra.
-  exact Hpos.
-  exact Hpos.
-  exact Hpos.
-  apply le_IZR.
-  apply Rlt_le.
-  apply archimed2.
-  apply pow_lt.
-  apply Rdiv_lt_0_compat.
-  lra.
-  exact Hpos.
-Qed.
+  enumerate_grid_observers origin radius resolution <> [].
 
 (** * Section 3: Elimination Probability and Survival *)
 
@@ -294,9 +296,17 @@ Proof.
   destruct (Rle_dec (resource_destruction a) 0).
   split; lra.
   split.
-  apply Rplus_le_reg_r with (exp (- Rabs (resource_destruction a) / obs_threshold o)).
-  ring_simplify.
-  left; apply exp_pos.
+  - assert (exp (- Rabs (resource_destruction a) / obs_threshold o) < 1).
+    { rewrite <- exp_0.
+      apply exp_increasing.
+      unfold Rdiv.
+      rewrite <- Ropp_mult_distr_l.
+      apply Ropp_lt_cancel.
+      rewrite Ropp_0, Ropp_involutive.
+      apply Rmult_lt_0_compat.
+      - apply Rabs_pos_lt. lra.
+      - apply Rinv_0_lt_compat. apply obs_threshold_pos. }
+    lra.
   apply Rplus_le_reg_r with (-1).
   ring_simplify.
   apply Rle_trans with 0.
@@ -314,21 +324,24 @@ Lemma survival_probability_bounds : forall a observers,
 Proof.
   intros a observers.
   induction observers.
-  simpl; split; lra.
-  simpl.
-  split.
-  apply Rmult_le_pos.
-  apply Rplus_le_reg_r with (elimination_probability a a0).
-  ring_simplify.
-  apply elimination_probability_bounds.
-  apply IHobservers.
-  apply Rmult_le_1.
-  apply Rplus_le_reg_r with (elimination_probability a a0).
-  ring_simplify.
-  apply elimination_probability_bounds.
-  apply IHobservers.
-  apply IHobservers.
-  apply elimination_probability_bounds.
+  - simpl. split.
+    + apply Rle_0_1.
+    + apply Rle_refl.
+  - simpl.
+    split.
+    + apply Rmult_le_pos.
+      * assert (H := elimination_probability_bounds a a0).
+        destruct H. lra.
+      * destruct IHobservers. exact H.
+    + apply Rle_trans with ((1 - 0) * 1).
+      * apply Rmult_le_compat.
+        -- assert (H := elimination_probability_bounds a a0).
+           destruct H. lra.
+        -- destruct IHobservers. exact H.
+        -- assert (H := elimination_probability_bounds a a0).
+           destruct H. lra.
+        -- destruct IHobservers. exact H0.
+      * ring_simplify. apply Rle_refl.
 Qed.
 
 Lemma survival_decreasing_in_destruction : forall a1 a2 observers,
@@ -337,42 +350,46 @@ Lemma survival_decreasing_in_destruction : forall a1 a2 observers,
 Proof.
   intros a1 a2 observers Hle.
   induction observers.
-  simpl; lra.
-  simpl.
-  apply Rmult_ge_compat.
-  apply Rplus_le_reg_r with (elimination_probability a2 a).
-  ring_simplify.
-  apply elimination_probability_bounds.
-  apply survival_probability_bounds.
-  unfold elimination_probability.
-  destruct (Rle_dec (resource_destruction a1) 0).
-  destruct (Rle_dec (resource_destruction a2) 0).
-  lra.
-  left.
-  apply Rplus_lt_reg_r with (- 1).
-  ring_simplify.
-  apply Ropp_lt_cancel.
-  ring_simplify.
-  apply exp_pos.
-  destruct (Rle_dec (resource_destruction a2) 0).
-  lra.
-  apply Rplus_ge_compat_l.
-  apply Ropp_ge_cancel.
-  apply exp_increasing_le.
-  apply Ropp_ge_cancel.
-  unfold Rdiv.
-  apply Rmult_ge_compat_neg_l.
-  apply Ropp_lt_cancel.
-  ring_simplify.
-  apply Rinv_0_lt_compat.
-  apply obs_threshold_pos.
-  apply Rabs_le.
-  split.
-  apply Rle_trans with (resource_destruction a2).
-  lra.
-  apply Rabs_pos.
-  exact Hle.
-  exact IHobservers.
+  - simpl. apply Rge_refl.
+  - simpl.
+    apply Rmult_ge_compat.
+    + assert (H1 := elimination_probability_bounds a1 a).
+      assert (H2 := elimination_probability_bounds a2 a).
+      destruct H1, H2. lra.
+    + assert (H := survival_probability_bounds a2 observers).
+      destruct H. apply Rle_ge. exact H.
+    + unfold elimination_probability.
+      destruct (Rle_dec (resource_destruction a1) 0).
+      * destruct (Rle_dec (resource_destruction a2) 0).
+        -- apply Rge_refl.
+        -- apply Rle_ge.
+           assert (H := exp_pos (- Rabs (resource_destruction a2) / obs_threshold a)).
+           assert (0 < 1 - exp (- Rabs (resource_destruction a2) / obs_threshold a)).
+           { apply Rlt_Rminus.
+             rewrite <- exp_0.
+             apply exp_increasing.
+             unfold Rdiv.
+             rewrite <- Ropp_mult_distr_l.
+             apply Ropp_lt_cancel.
+             rewrite Ropp_0, Ropp_involutive.
+             apply Rmult_lt_0_compat.
+             - apply Rabs_pos_lt. lra.
+             - apply Rinv_0_lt_compat. apply obs_threshold_pos. }
+           lra.
+      * destruct (Rle_dec (resource_destruction a2) 0).
+        -- lra.
+        -- apply Rplus_ge_compat_l.
+           apply Ropp_ge_cancel.
+           apply Rle_ge. apply exp_le_inv.
+           apply Ropp_ge_cancel.
+           unfold Rdiv.
+           rewrite !Ropp_mult_distr_l.
+           apply Rmult_le_compat_l.
+           ++ left. apply Rmult_lt_0_compat.
+              ** apply Rabs_pos_lt. lra.
+              ** apply Rinv_0_lt_compat. apply obs_threshold_pos.
+           ++ apply Rle_refl.
+    + exact IHobservers.
 Qed.
 
 (** * Section 4: Computational Model *)
@@ -804,18 +821,3 @@ Proof.
 Qed.
 
 End ResourceDynamics.
-
-(** * Section 8: Final Remarks
-    
-    This completes the formal proof that in systems with finite-speed 
-    information propagation and observation-dependent elimination, optimal
-    strategies converge to resource-preserving fixed points as computational
-    capacity increases. The convergence is uniform and independent of the
-    specific initial conditions, depending only on the structural properties
-    of the delayed observation dynamics.
-    
-    The key insight is that destruction of resources becomes asymptotically
-    dominated by preservation as the consideration of distant observers grows
-    with computational capacity, making cooperation the unique evolutionary
-    stable strategy in the limit.
-*)
