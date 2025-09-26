@@ -9,6 +9,7 @@
 (*                                                                            *)
 (*     "Ua mau ke ea o ka ʻāina i ka pono"                                  *)
 (*     (The life of the land is perpetuated in righteousness)                *)
+(*     - King Kamehameha III, July 31, 1843 (Hawaii State Motto)             *)
 (*                                                                            *)
 (*     Author: Charles C. Norton                                             *)
 (*     Date: September 26, 2025                                              *)
