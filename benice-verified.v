@@ -324,6 +324,7 @@ Qed.
 Variable c : R.
 Hypothesis c_positive : c > 0.
 Hypothesis c_finite : c <= 299792458.
+Hypothesis c_reasonable : c > 10.
 
 (** * Section 2: Observer Model and Discrete Approximation *)
 
@@ -583,9 +584,91 @@ Definition optimal_strategy (comp : computational_capacity) (origin : State) : A
   else
     preserving_action.
 
-Hypothesis utility_preserving_bounded_below : forall comp origin,
+Lemma utility_preserving_equals_one : forall comp origin,
+  utility preserving_action comp origin = 1.
+Proof.
+  intros comp origin.
+  unfold utility, survival_probability.
+  assert (H_elim_zero: forall o, In o (considered_observers comp origin) ->
+                        elimination_probability preserving_action o = 0).
+  {
+    intros o Ho.
+    unfold elimination_probability.
+    destruct (Rle_dec (resource_destruction preserving_action) 0) as [Hle|Hgt].
+    - reflexivity.
+    - exfalso.
+      assert (Hzero: resource_destruction preserving_action = 0).
+      { apply resource_destruction_preserving. apply preserving_action_preserves. }
+      lra.
+  }
+  assert (H_map_ones: map (fun o => 1 - elimination_probability preserving_action o)
+                          (considered_observers comp origin) =
+                      map (fun o => 1) (considered_observers comp origin)).
+  {
+    apply map_ext_in.
+    intros a Ha.
+    rewrite H_elim_zero; auto.
+    ring.
+  }
+  rewrite H_map_ones.
+  clear H_elim_zero H_map_ones.
+  induction (considered_observers comp origin).
+  - simpl. reflexivity.
+  - simpl. rewrite IHl. ring.
+Qed.
+
+Lemma utility_preserving_bounded_below : forall comp origin,
   utility preserving_action comp origin >=
   exp (- INR (length (considered_observers comp origin))).
+Proof.
+  intros comp origin.
+  rewrite utility_preserving_equals_one.
+  apply Rle_ge.
+  destruct comp as [|n].
+  - assert (Hexp: exp (- INR (length (considered_observers 0%nat origin))) <= 1).
+    { destruct (length (considered_observers 0%nat origin)) eqn:Hlen.
+      - simpl. rewrite Ropp_0. rewrite exp_0. lra.
+      - rewrite <- exp_0.
+        left. apply exp_increasing.
+        rewrite <- Ropp_0.
+        apply Ropp_lt_contravar.
+        apply lt_0_INR. lia. }
+    lra.
+  - assert (0 < INR (length (considered_observers (S n) origin))).
+    { apply lt_0_INR.
+      assert (Hne := enumerate_grid_observers_nonempty origin (observation_horizon (S n) * c) 1).
+      assert (H: 0 < 1 < observation_horizon (S n) * c / 10).
+      { split. lra.
+        unfold observation_horizon. simpl.
+        assert (INR (S n) * c > 10).
+        { destruct n.
+          - simpl. rewrite Rmult_1_l. exact c_reasonable.
+          - assert (INR (S (S n)) >= 2).
+            { apply Rle_ge.
+              change 2 with (INR 2%nat).
+              apply le_INR. lia. }
+            assert (INR (S (S n)) * c >= 2 * c).
+            { apply Rmult_ge_compat_r; [left; exact c_positive | assumption]. }
+            assert (2 * c > 20).
+            { apply Rmult_gt_compat_l with (r:=2) in c_reasonable; lra. }
+            apply Rge_gt_trans with (2 * c); [exact H0 | lra]. }
+        unfold observation_horizon. simpl.
+        apply Rlt_gt.
+        apply Rmult_lt_reg_r with 10; [lra|].
+        unfold Rdiv. rewrite Rmult_assoc. rewrite Rinv_l; [|lra].
+        rewrite Rmult_1_r, Rmult_1_l.
+        apply Rgt_lt. exact H. }
+      specialize (Hne H).
+      unfold considered_observers.
+      destruct (enumerate_grid_observers origin (observation_horizon (S n) * c) 1) eqn:Heq.
+      - exfalso. apply Hne. reflexivity.
+      - simpl. lia. }
+    assert (exp (- INR (length (considered_observers (S n) origin))) < exp 0).
+    { apply exp_increasing.
+      rewrite <- Ropp_0.
+      apply Ropp_lt_contravar. exact H. }
+    rewrite exp_0 in H0. lra.
+Qed.
 
 (** Helper lemma: survival probability is positive for non-empty observers *)
 Lemma survival_positive : forall action observers,
