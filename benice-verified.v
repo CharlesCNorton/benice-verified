@@ -190,13 +190,128 @@ Definition preserves_resources (a : Action) : Prop :=
 Definition destroys_resources (a : Action) : Prop :=
   exists s : State, norm_state (a s) < norm_state s.
 
-Variable resource_destruction : Action -> R.
+(** Constructive definition of resource destruction *)
+Definition norm_reduction (a : Action) (s : State) : R :=
+  norm_state s - norm_state (a s).
 
-Hypothesis resource_destruction_preserving : forall a,
+(** The set of all norm reductions for an action *)
+Definition norm_reduction_set (a : Action) : Rbar -> Prop :=
+  fun r => exists s : State, r = Finite (norm_reduction a s).
+
+(** Resource destruction as the supremum of norm reductions *)
+Definition resource_destruction (a : Action) : R :=
+  match Lub_Rbar (norm_reduction_set a) with
+  | Finite r => Rmax r 0
+  | p_infty => 1  (* If unbounded above, return a positive constant *)
+  | m_infty => 0
+  end.
+
+(** Helper: norm_reduction is non-positive for preserving actions *)
+Lemma norm_reduction_nonpos_preserving : forall a s,
+  preserves_resources a -> norm_reduction a s <= 0.
+Proof.
+  intros a s Hpres.
+  unfold norm_reduction, preserves_resources in *.
+  specialize (Hpres s).
+  apply Rge_le in Hpres.
+  lra.
+Qed.
+
+(** Helper: The norm_reduction_set is bounded above by 0 for preserving actions *)
+Lemma norm_reduction_set_bounded_preserving : forall a,
+  preserves_resources a ->
+  Rbar_is_upper_bound (norm_reduction_set a) 0.
+Proof.
+  intros a Hpres.
+  unfold Rbar_is_upper_bound, norm_reduction_set.
+  intros x [s Hs].
+  rewrite Hs.
+  apply norm_reduction_nonpos_preserving.
+  assumption.
+Qed.
+
+(** Main lemma: resource_destruction_preserving *)
+Lemma resource_destruction_preserving : forall a,
   preserves_resources a -> resource_destruction a = 0.
+Proof.
+  intros a Hpres.
+  unfold resource_destruction.
+  destruct (Lub_Rbar (norm_reduction_set a)) eqn:Hlub.
+  - unfold Rmax.
+    destruct (Rle_dec r 0).
+    + reflexivity.
+    + exfalso.
+      assert (Hbound: Rbar_is_upper_bound (norm_reduction_set a) 0).
+      { apply norm_reduction_set_bounded_preserving. assumption. }
+      assert (Hlub_prop := Lub_Rbar_correct (norm_reduction_set a)).
+      rewrite Hlub in Hlub_prop.
+      destruct Hlub_prop as [Hub Hleast].
+      specialize (Hleast 0 Hbound).
+      simpl in Hleast.
+      lra.
+  - exfalso.
+    (* If preserving, norm_reduction_set is bounded above by 0, so can't be p_infty *)
+    assert (Hbound: Rbar_is_upper_bound (norm_reduction_set a) 0).
+    { apply norm_reduction_set_bounded_preserving. assumption. }
+    assert (Hlub_prop := Lub_Rbar_correct (norm_reduction_set a)).
+    rewrite Hlub in Hlub_prop.
+    destruct Hlub_prop as [Hub Hleast].
+    (* p_infty is the least upper bound, but 0 is also an upper bound *)
+    (* So p_infty <= 0, which is a contradiction *)
+    specialize (Hleast 0 Hbound).
+    simpl in Hleast.
+    unfold Rbar_le in Hleast.
+    assumption.
+  - reflexivity.
+Qed.
 
-Hypothesis resource_destruction_destroying : forall a,
+(** Helper: If an action destroys resources, there exists a positive norm_reduction *)
+Lemma exists_positive_norm_reduction : forall a,
+  destroys_resources a ->
+  exists s, norm_reduction a s > 0.
+Proof.
+  intros a Hdest.
+  unfold destroys_resources in Hdest.
+  destruct Hdest as [s Hdest].
+  exists s.
+  unfold norm_reduction.
+  lra.
+Qed.
+
+(** Helper: The supremum is an upper bound for the set *)
+Lemma lub_is_upper_bound : forall a s,
+  Rbar_le (Finite (norm_reduction a s)) (Lub_Rbar (norm_reduction_set a)).
+Proof.
+  intros a s.
+  assert (Hlub := Lub_Rbar_correct (norm_reduction_set a)).
+  destruct Hlub as [Hub _].
+  apply Hub.
+  unfold norm_reduction_set.
+  exists s.
+  reflexivity.
+Qed.
+
+(** Main lemma: resource_destruction_destroying *)
+Lemma resource_destruction_destroying : forall a,
   destroys_resources a -> resource_destruction a > 0.
+Proof.
+  intros a Hdest.
+  destruct (exists_positive_norm_reduction a Hdest) as [s Hpos].
+  unfold resource_destruction.
+  assert (Hlub_bound := lub_is_upper_bound a s).
+  destruct (Lub_Rbar (norm_reduction_set a)) eqn:Hlub.
+  - unfold Rmax.
+    destruct (Rle_dec r 0).
+    + exfalso.
+      simpl in Hlub_bound.
+      lra.
+    + simpl in Hlub_bound.
+      lra.
+  - apply Rlt_0_1.
+  - simpl in Hlub_bound.
+    unfold Rbar_le in Hlub_bound.
+    lra.
+Qed.
 
 Lemma resource_destruction_nonneg : forall a,
   preserves_resources a -> resource_destruction a <= 0.
@@ -593,18 +708,3 @@ Proof.
 Qed.
 
 End ResourceDynamics.
-
-(** * Section 8: Final Remarks
-    
-    This completes the formal proof that in systems with finite-speed 
-    information propagation and observation-dependent elimination, optimal
-    strategies converge to resource-preserving fixed points as computational
-    capacity increases. The convergence is uniform and independent of the
-    specific initial conditions, depending only on the structural properties
-    of the delayed observation dynamics.
-    
-    The key insight is that destruction of resources becomes asymptotically
-    dominated by preservation as the consideration of distant observers grows
-    with computational capacity, making cooperation the unique evolutionary
-    stable strategy in the limit.
-*)
