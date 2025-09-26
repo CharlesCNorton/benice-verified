@@ -7,6 +7,12 @@
 (*     converge to resource-preserving fixed points under increasing         *)
 (*     computational depth.                                                  *)
 (*                                                                            *)
+(*     "Ua mau ke ea o ka ʻāina i ka pono"                                  *)
+(*     (The life of the land is perpetuated in righteousness)                *)
+(*                                                                            *)
+(*     Author: Charles C. Norton                                             *)
+(*     Date: September 26, 2025                                              *)
+(*                                                                            *)
 (******************************************************************************)
 
 Require Import Reals Lra Lia Psatz.
