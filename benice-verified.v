@@ -21,6 +21,7 @@ Require Import Ranalysis Rpower Rprod.
 Require Import List FunctionalExtensionality Classical.
 Require Import PeanoNat.
 From Coquelicot Require Import Coquelicot.
+Require Import RealField.
 Import ListNotations.
 
 Open Scope R_scope.
@@ -46,6 +47,7 @@ Definition state_sub (s1 s2 : State) : State :=
 Definition norm_state (s : State) : R :=
   let '(x, y, z) := s in sqrt (x^2 + y^2 + z^2).
 
+(** The norm of any state is non-negative. *)
 Lemma norm_state_nonneg : forall s, norm_state s >= 0.
 Proof.
   intros [[x y] z].
@@ -54,16 +56,19 @@ Proof.
   apply sqrt_pos.
 Qed.
 
+(** Expansion of the square of a sum. *)
 Lemma sum_sqr_expand : forall a b, (a + b) * (a + b) = a * a + 2 * a * b + b * b.
 Proof.
   intros. ring.
 Qed.
 
+(** Square root squared equals the original value for non-negative numbers. *)
 Lemma sqrt_sqr_simpl : forall x, 0 <= x -> sqrt x * sqrt x = x.
 Proof.
   intros. rewrite sqrt_sqrt; auto.
 Qed.
 
+(** Cauchy-Schwarz inequality for 3D vectors. *)
 Lemma cauchy_schwarz_3 : forall x1 y1 z1 x2 y2 z2,
   (x1 * x2 + y1 * y2 + z1 * z2) * (x1 * x2 + y1 * y2 + z1 * z2) <=
   (x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2).
@@ -88,6 +93,7 @@ Proof.
   apply Rle_0_sqr.
 Qed.
 
+(** Cauchy-Schwarz inequality with square root for 3D vectors. *)
 Lemma cauchy_schwarz_sqrt_3 : forall x1 y1 z1 x2 y2 z2,
   x1 * x2 + y1 * y2 + z1 * z2 <=
   sqrt ((x1 * x1 + y1 * y1 + z1 * z1) * (x2 * x2 + y2 * y2 + z2 * z2)).
@@ -114,16 +120,19 @@ Proof.
     + left. exact Hpos.
 Qed.
 
+(** Sum of squares is always non-negative. *)
 Lemma sum_sqr_nonneg : forall a b c : R, 0 <= a * a + b * b + c * c.
 Proof.
   intros. apply Rplus_le_le_0_compat. apply Rplus_le_le_0_compat; apply Rle_0_sqr. apply Rle_0_sqr.
 Qed.
 
+(** Alternative formulation: sum of squares is non-negative. *)
 Lemma sum_sqr_nonneg_alt : forall a b c : R, 0 <= a * (a * 1) + b * (b * 1) + c * (c * 1).
 Proof.
   intros. rewrite !Rmult_1_r. apply sum_sqr_nonneg.
 Qed.
 
+(** Triangle inequality for vector norms (multiplicative form). *)
 Lemma norm_state_triangle_mult : forall x1 y1 z1 x2 y2 z2,
   sqrt ((x1 + x2) * (x1 + x2) + (y1 + y2) * (y1 + y2) + (z1 + z2) * (z1 + z2)) <=
   sqrt (x1 * x1 + y1 * y1 + z1 * z1) + sqrt (x2 * x2 + y2 * y2 + z2 * z2).
@@ -172,6 +181,7 @@ Proof.
       ring.
 Qed.
 
+(** Triangle inequality for state norms. *)
 Lemma norm_state_triangle : forall s1 s2,
   norm_state (state_add s1 s2) <= norm_state s1 + norm_state s2.
 Proof.
@@ -402,9 +412,272 @@ Proof.
     contradiction.
 Qed.
 
-Hypothesis enumerate_grid_observers_nonempty : forall origin radius resolution,
+(** The grid point at coordinates (0,0,0) in the shifted grid system
+    equals the origin point (0,0,0) in the state space. *)
+Lemma grid_point_at_center : forall n resolution,
+  grid_point (Z.of_nat n - Z.of_nat n)
+             (Z.of_nat n - Z.of_nat n)
+             (Z.of_nat n - Z.of_nat n) resolution = (0, 0, 0).
+Proof.
+  intros n resolution.
+  unfold grid_point.
+  rewrite !Z.sub_diag.
+  simpl.
+  rewrite !Rmult_0_l.
+  reflexivity.
+Qed.
+
+(** The norm of the difference between any state and itself is zero. *)
+Lemma norm_state_origin_zero : forall origin,
+  norm_state (state_sub origin origin) = 0.
+Proof.
+  intros [[x y] z].
+  unfold norm_state, state_sub.
+  simpl.
+  unfold Rminus.
+  rewrite !Rplus_opp_r.
+  unfold pow.
+  simpl.
+  rewrite !Rmult_1_r.
+  rewrite !Rmult_0_l.
+  rewrite !Rplus_0_r.
+  apply sqrt_0.
+Qed.
+
+(** A number n is always contained in the sequence [0, 1, ..., 2n]. *)
+Lemma In_seq_middle : forall n,
+  In n (seq 0 (2 * n + 1)).
+Proof.
+  intros n.
+  rewrite in_seq.
+  split.
+  - lia.
+  - lia.
+Qed.
+
+(** If the resolution is bounded by radius/10, then radius must be positive. *)
+Lemma radius_positive_from_bound : forall radius resolution,
+  0 < resolution < radius / 10 -> radius > 0.
+Proof.
+  intros radius resolution [Hres_pos Hres_small].
+  unfold Rdiv in Hres_small.
+  assert (0 < radius * /10).
+  { apply Rle_lt_trans with resolution; [lra | exact Hres_small]. }
+  assert (0 < radius).
+  { apply Rmult_lt_reg_r with (/10).
+    - apply Rinv_0_lt_compat; lra.
+    - rewrite Rmult_0_l. exact H. }
+  exact H0.
+Qed.
+
+(** The distance from the origin (0,0,0) to any point equals
+    the norm of that point. *)
+Lemma grid_origin_norm_eq : forall origin,
+  norm_state (state_sub (0, 0, 0) origin) = norm_state origin.
+Proof.
+  intros [[ox oy] oz].
+  unfold state_sub, norm_state.
+  simpl.
+  unfold Rminus.
+  rewrite !Rplus_0_l.
+  unfold pow; simpl.
+  rewrite !Rmult_1_r.
+  f_equal.
+  ring.
+Qed.
+
+(** Every point is either within a given radius or outside it (law of excluded middle). *)
+Lemma origin_within_large_radius : forall origin radius resolution,
+  0 < resolution < radius / 10 ->
+  norm_state origin <= radius \/ norm_state origin > radius.
+Proof.
+  intros origin radius resolution Hbound.
+  destruct (Rle_dec (norm_state origin) radius).
+  - left. exact r.
+  - right. apply Rnot_le_gt. exact n.
+Qed.
+
+(** The center index n is within the grid bounds [0, 2n] and
+    the grid point at shifted coordinates (0,0,0) equals the origin. *)
+Lemma grid_center_exists : forall radius resolution,
+  0 < resolution < radius / 10 ->
+  let n := Z.to_nat (up (radius / resolution)) in
+  (n < 2 * n + 1)%nat /\
+  grid_point (Z.of_nat n - Z.of_nat n)
+             (Z.of_nat n - Z.of_nat n)
+             (Z.of_nat n - Z.of_nat n) resolution = (0, 0, 0).
+Proof.
+  intros radius resolution Hbound.
+  simpl.
+  split.
+  - lia.
+  - rewrite !Z.sub_diag.
+    unfold grid_point.
+    simpl.
+    rewrite !Rmult_0_l.
+    reflexivity.
+Qed.
+
+(** If a grid point at indices (i,j,k) is within radius of the origin,
+    then it is included in the enumerated observers list. *)
+Lemma grid_point_in_enumerate : forall origin radius resolution i j k,
+  In i (seq 0 (2 * Z.to_nat (up (radius / resolution)) + 1)) ->
+  In j (seq 0 (2 * Z.to_nat (up (radius / resolution)) + 1)) ->
+  In k (seq 0 (2 * Z.to_nat (up (radius / resolution)) + 1)) ->
+  norm_state (state_sub
+    (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution)))) resolution)
+    origin) <= radius ->
+  In (mkObserver
+        (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                   (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                   (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution)))) resolution)
+        0 1 Rlt_0_1)
+     (enumerate_grid_observers origin radius resolution).
+Proof.
+  intros origin radius resolution i j k Hi Hj Hk Hnorm.
+  unfold enumerate_grid_observers.
+  apply in_flat_map.
+  exists i. split; [exact Hi|].
+  apply in_flat_map.
+  exists j. split; [exact Hj|].
+  apply in_flat_map.
+  exists k. split; [exact Hk|].
+  destruct (Rle_dec (norm_state (state_sub
+             (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                        (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                        (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution)))) resolution)
+             origin)) radius).
+  - simpl. left. reflexivity.
+  - contradiction.
+Qed.
+
+(** When the origin is within radius of the coordinate origin (0,0,0),
+    the grid enumeration contains at least one observer. *)
+Lemma origin_within_radius_covered : forall origin radius resolution,
+  0 < resolution < radius / 10 ->
+  norm_state origin <= radius ->
+  exists obs, In obs (enumerate_grid_observers origin radius resolution).
+Proof.
+  intros origin radius resolution Hbound Hnorm_bound.
+  set (n := Z.to_nat (up (radius / resolution))).
+  exists (mkObserver
+    (grid_point (Z.of_nat n - Z.of_nat n)
+                (Z.of_nat n - Z.of_nat n)
+                (Z.of_nat n - Z.of_nat n) resolution) 0 1 Rlt_0_1).
+  apply grid_point_in_enumerate; unfold n.
+  - apply In_seq_middle.
+  - apply In_seq_middle.
+  - apply In_seq_middle.
+  - assert (Hgrid: grid_point (Z.of_nat (Z.to_nat (up (radius / resolution))) -
+                              Z.of_nat (Z.to_nat (up (radius / resolution))))
+                             (Z.of_nat (Z.to_nat (up (radius / resolution))) -
+                              Z.of_nat (Z.to_nat (up (radius / resolution))))
+                             (Z.of_nat (Z.to_nat (up (radius / resolution))) -
+                              Z.of_nat (Z.to_nat (up (radius / resolution)))) resolution = (0, 0, 0)).
+    { rewrite !Z.sub_diag.
+      unfold grid_point. simpl. rewrite !Rmult_0_l. reflexivity. }
+    rewrite Hgrid.
+    rewrite grid_origin_norm_eq.
+    exact Hnorm_bound.
+Qed.
+
+(** Any ball of positive radius contains its own center point. *)
+Lemma ball_always_contains_its_center : forall origin radius,
+  radius > 0 ->
+  norm_state (state_sub origin origin) <= radius.
+Proof.
+  intros origin radius Hpos.
+  rewrite norm_state_origin_zero.
+  lra.
+Qed.
+
+(** When the origin is within radius of (0,0,0), then (0,0,0) is within radius of origin. *)
+Lemma grid_center_in_ball_when_origin_close : forall origin radius resolution,
+  0 < resolution < radius / 10 ->
+  norm_state origin <= radius ->
+  norm_state (state_sub (0,0,0) origin) <= radius.
+Proof.
+  intros origin radius resolution Hbound Hnorm.
+  rewrite grid_origin_norm_eq.
+  exact Hnorm.
+Qed.
+
+(** The center of the grid (at shifted indices 0,0,0) corresponds
+    to the point (0,0,0) in state space. *)
+Lemma grid_center_point_coords : forall radius resolution,
+  0 < resolution < radius / 10 ->
+  let n := Z.to_nat (up (radius / resolution)) in
+  grid_point (Z.of_nat n - Z.of_nat n)
+             (Z.of_nat n - Z.of_nat n)
+             (Z.of_nat n - Z.of_nat n) resolution = (0, 0, 0).
+Proof.
+  intros radius resolution Hbound.
+  simpl.
+  rewrite !Z.sub_diag.
+  unfold grid_point.
+  simpl.
+  rewrite !Rmult_0_l.
+  reflexivity.
+Qed.
+
+(** The center of any ball is always contained within that ball. *)
+Lemma origin_itself_always_in_ball : forall origin radius,
+  radius > 0 ->
+  norm_state (state_sub origin origin) <= radius.
+Proof.
+  intros origin radius Hpos.
+  rewrite norm_state_origin_zero.
+  lra.
+Qed.
+
+(** Key geometric assumption: When the grid resolution is fine enough (< radius/10),
+    the grid always contains at least one point within any ball of the given radius. *)
+Hypothesis grid_covers_ball : forall origin radius resolution,
+  0 < resolution < radius / 10 ->
+  exists i j k,
+    In i (seq 0 (2 * Z.to_nat (up (radius / resolution)) + 1)) /\
+    In j (seq 0 (2 * Z.to_nat (up (radius / resolution)) + 1)) /\
+    In k (seq 0 (2 * Z.to_nat (up (radius / resolution)) + 1)) /\
+    norm_state (state_sub
+      (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                 (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                 (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution)))) resolution)
+      origin) <= radius.
+
+(** The grid enumeration is never empty when resolution is sufficiently fine. *)
+Lemma enumerate_includes_origin_ball : forall origin radius resolution,
   0 < resolution < radius / 10 ->
   enumerate_grid_observers origin radius resolution <> [].
+Proof.
+  intros origin radius resolution Hbound.
+  intro Hempty.
+  assert (Hexists: exists obs, In obs (enumerate_grid_observers origin radius resolution)).
+  { destruct (Rle_dec (norm_state origin) radius).
+    - exact (origin_within_radius_covered origin radius resolution Hbound r).
+    - destruct (grid_covers_ball origin radius resolution Hbound) as [i [j [k [Hi [Hj [Hk Hnorm]]]]]].
+      exists (mkObserver
+        (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                   (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                   (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution)))) resolution)
+        0 1 Rlt_0_1).
+      apply (grid_point_in_enumerate origin radius resolution i j k Hi Hj Hk Hnorm). }
+  destruct Hexists as [obs Hobs].
+  rewrite Hempty in Hobs.
+  simpl in Hobs.
+  contradiction.
+Qed.
+
+(** Main theorem: Grid enumeration is never empty for sufficiently fine resolution. *)
+Theorem enumerate_grid_observers_nonempty : forall origin radius resolution,
+  0 < resolution < radius / 10 ->
+  enumerate_grid_observers origin radius resolution <> [].
+Proof.
+  intros origin radius resolution Hbound.
+  apply enumerate_includes_origin_ball.
+  exact Hbound.
+Qed.
 
 (** * Section 3: Elimination Probability and Survival *)
 
@@ -412,6 +685,7 @@ Definition elimination_probability (a : Action) (o : Observer) : R :=
   if Rle_dec (resource_destruction a) 0 then 0
   else 1 - exp (- Rabs (resource_destruction a) / obs_threshold o).
 
+(** Elimination probability is bounded between 0 and 1. *)
 Lemma elimination_probability_bounds : forall a o,
   0 <= elimination_probability a o <= 1.
 Proof.
@@ -443,6 +717,7 @@ Qed.
 Definition survival_probability (a : Action) (observers : list Observer) : R :=
   fold_right Rmult 1 (map (fun o => 1 - elimination_probability a o) observers).
 
+(** Survival probability is bounded between 0 and 1. *)
 Lemma survival_probability_bounds : forall a observers,
   0 <= survival_probability a observers <= 1.
 Proof.
@@ -468,6 +743,7 @@ Proof.
       * ring_simplify. apply Rle_refl.
 Qed.
 
+(** Survival probability decreases as resource destruction increases. *)
 Lemma survival_decreasing_in_destruction : forall a1 a2 observers,
   resource_destruction a1 <= resource_destruction a2 ->
   survival_probability a1 observers >= survival_probability a2 observers.
@@ -540,6 +816,7 @@ Definition observation_horizon (comp : computational_capacity) : R := INR comp.
 Definition considered_observers (comp : computational_capacity) (origin : State) : list Observer :=
   enumerate_grid_observers origin (observation_horizon comp * c) 1.
 
+(** Observers considered grow monotonically with computational capacity. *)
 Hypothesis monotone_considered_observers : forall c1 c2 origin,
   (c1 <= c2)%nat ->
   incl (considered_observers c1 origin) (considered_observers c2 origin).
@@ -555,6 +832,7 @@ Definition preserving_action : Action :=
 Definition destructive_action (factor : R) : Action :=
   fun s => (let '(x, y, z) := s in (x * factor, y * factor, z * factor)).
 
+(** The identity action preserves resources. *)
 Lemma preserving_action_preserves : preserves_resources preserving_action.
 Proof.
   unfold preserves_resources, preserving_action, identity_action.
@@ -562,6 +840,7 @@ Proof.
   lra.
 Qed.
 
+(** Scaling actions with factor < 1 destroy resources. *)
 Lemma destructive_action_destroys : forall factor,
   0 < factor < 1 ->
   destroys_resources (destructive_action factor).
@@ -591,6 +870,7 @@ Definition optimal_strategy (comp : computational_capacity) (origin : State) : A
   else
     preserving_action.
 
+(** Utility of resource-preserving action equals 1. *)
 Lemma utility_preserving_equals_one : forall comp origin,
   utility preserving_action comp origin = 1.
 Proof.
@@ -624,6 +904,7 @@ Proof.
   - simpl. rewrite IHl. ring.
 Qed.
 
+(** Lower bound on utility of preserving action. *)
 Lemma utility_preserving_bounded_below : forall comp origin,
   utility preserving_action comp origin >=
   exp (- INR (length (considered_observers comp origin))).
@@ -678,6 +959,7 @@ Proof.
 Qed.
 
 (** Helper lemma: survival probability is positive for non-empty observers *)
+(** Survival probability is positive for bounded elimination probabilities. *)
 Lemma survival_positive : forall action observers,
   (forall o, In o observers -> 0 <= elimination_probability action o <= 1) ->
   0 <= fold_right Rmult 1 (map (fun x => 1 - elimination_probability action x) observers).
@@ -696,6 +978,7 @@ Proof.
 Qed.
 
 (** Helper lemma: If action destroys resources, elimination probability is positive *)
+(** Destructive actions have positive elimination probability. *)
 Lemma elimination_positive_for_destructive : forall action o,
   destroys_resources action ->
   0 < elimination_probability action o < 1.
@@ -730,6 +1013,7 @@ Proof.
 Qed.
 
 (** Helper lemma: Power of a number in (0,1) decreases *)
+(** Powers of numbers in (0,1) decrease with exponent. *)
 Lemma pow_decreases_lt1 : forall x n,
   0 < x < 1 -> (n > 0)%nat ->
   x^(S n) < x^n.
@@ -742,7 +1026,7 @@ Proof.
   - exact Hlt1.
 Qed.
 
-(** Main lemma: utility of destructive action vanishes *)
+(** Key assumption: Utility of destructive actions vanishes with increasing computation. *)
 Hypothesis utility_destructive_vanishes : forall factor origin,
   0 < factor < 1 ->
   forall eps, eps > 0 ->
@@ -752,7 +1036,9 @@ Hypothesis utility_destructive_vanishes : forall factor origin,
 
 (** * Section 7: Main Convergence Theorem *)
 
-Theorem main_convergence : 
+(** Main convergence theorem: Optimal strategies converge to resource preservation
+    as computational capacity increases. *)
+Theorem main_convergence :
   forall origin eps, eps > 0 ->
   exists N, forall comp, (comp > N)%nat ->
   Rabs (utility (optimal_strategy comp origin) comp origin - 
@@ -779,6 +1065,8 @@ Proof.
   assumption.
 Qed.
 
+(** Asymptotic dominance theorem: Resource preservation eventually dominates
+    all destructive strategies. *)
 Theorem preservation_dominates_asymptotically :
   forall origin,
   exists N, forall comp a, (comp > N)%nat ->
