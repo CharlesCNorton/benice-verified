@@ -831,10 +831,238 @@ Definition observation_horizon (comp : computational_capacity) : R := INR comp.
 Definition considered_observers (comp : computational_capacity) (origin : State) : list Observer :=
   enumerate_grid_observers origin (observation_horizon comp * c) 1.
 
+(** Helper: membership in seq implies bound. *)
+Lemma in_seq_bound : forall i start len,
+  In i (seq start len) -> (i < start + len)%nat /\ (start <= i)%nat.
+Proof.
+  intros i start len H.
+  rewrite in_seq in H.
+  lia.
+Qed.
+
+(** Helper: bound implies membership in seq from 0. *)
+Lemma bound_in_seq_0 : forall i len,
+  (i < len)%nat -> In i (seq 0 len).
+Proof.
+  intros i len H.
+  rewrite in_seq.
+  lia.
+Qed.
+
+(** Helper: if n1 <= n2, then indices can be shifted. *)
+Lemma grid_index_shift : forall i n1 n2,
+  (n1 <= n2)%nat ->
+  (i < 2 * n1 + 1)%nat ->
+  let i2 := (i + (n2 - n1))%nat in
+  (i2 < 2 * n2 + 1)%nat /\
+  (Z.of_nat i - Z.of_nat n1)%Z = (Z.of_nat i2 - Z.of_nat n2)%Z.
+Proof.
+  intros i n1 n2 Hle Hi.
+  simpl.
+  split.
+  - lia.
+  - lia.
+Qed.
+
+(** Grid points are equal when their integer coordinates are equal. *)
+Lemma grid_point_eq_coords : forall z1 z2 z3 z1' z2' z3' res,
+  z1 = z1' -> z2 = z2' -> z3 = z3' ->
+  grid_point z1 z2 z3 res = grid_point z1' z2' z3' res.
+Proof.
+  intros z1 z2 z3 z1' z2' z3' res H1 H2 H3.
+  unfold grid_point.
+  rewrite H1, H2, H3.
+  reflexivity.
+Qed.
+
+(** Helper: up produces non-negative integers for non-negative reals. *)
+Lemma up_nonneg : forall r,
+  r >= 0 -> (up r >= 0)%Z.
+Proof.
+  intros r Hr.
+  destruct (archimed r) as [H1 _].
+  destruct (Z.compare_spec (up r) 0) as [Heq|Hlt|Hgt];
+    try (apply IZR_lt in Hlt; simpl in Hlt; lra).
+  - lia.
+  - lia.
+Qed.
+
+(** Helper: product of non-negative reals is non-negative. *)
+Lemma mult_nonneg_compat : forall x y,
+  0 <= x -> 0 <= y -> 0 <= x * y.
+Proof.
+  intros x y Hx Hy.
+  apply Rmult_le_pos; assumption.
+Qed.
+
+(** Helper: inverse of positive real is non-negative. *)
+Lemma inv_pos_nonneg : forall x,
+  x > 0 -> 0 <= / x.
+Proof.
+  intros x Hx.
+  apply Rlt_le.
+  apply Rinv_0_lt_compat.
+  exact Hx.
+Qed.
+
+(** Helper: transitivity for 0 <= x <= y. *)
+Lemma nonneg_trans : forall x y,
+  0 <= x -> x <= y -> 0 <= y.
+Proof.
+  intros x y Hx Hxy.
+  apply Rle_trans with x; assumption.
+Qed.
+
+(** Helper: division by positive preserves non-negativity. *)
+Lemma div_nonneg : forall x y,
+  0 <= x -> y > 0 -> 0 <= x / y.
+Proof.
+  intros x y Hx Hy.
+  unfold Rdiv.
+  apply mult_nonneg_compat; [exact Hx | apply inv_pos_nonneg; exact Hy].
+Qed.
+
+(** Grid size is monotone in radius. *)
+Lemma grid_size_monotone : forall r1 r2 res,
+  res > 0 -> 0 <= r1 <= r2 ->
+  (Z.to_nat (up (r1 / res)) <= Z.to_nat (up (r2 / res)))%nat.
+Proof.
+  intros r1 r2 res Hres [Hr1 Hr2].
+  destruct (Z.le_gt_cases (up (r1 / res)) (up (r2 / res))).
+  - apply Nat2Z.inj_le.
+    rewrite Z2Nat.id.
+    rewrite Z2Nat.id.
+    + exact H.
+    + apply Z.ge_le; apply up_nonneg.
+      apply Rle_ge.
+      assert (0 <= r2) as Hr2_nonneg by (apply (nonneg_trans r1 r2); [exact Hr1 | exact Hr2]).
+      apply div_nonneg; [exact Hr2_nonneg | exact Hres].
+    + apply Z.ge_le; apply up_nonneg.
+      apply Rle_ge.
+      apply div_nonneg; [exact Hr1 | exact Hres].
+  - exfalso.
+    destruct (archimed (r1 / res)) as [H1 _].
+    destruct (archimed (r2 / res)) as [H2 _].
+    assert (Hcontra: r1 / res <= r2 / res).
+    { unfold Rdiv.
+      apply Rmult_le_compat_r.
+      - left. apply Rinv_0_lt_compat. exact Hres.
+      - exact Hr2. }
+    assert (Hlt: IZR (up (r2 / res)) < IZR (up (r1 / res))).
+    { apply IZR_lt. exact H. }
+    assert (HZ: (up (r2 / res) <= up (r1 / res) - 1)%Z).
+    { apply Z.lt_le_pred. exact H. }
+    assert (HIZ: IZR (up (r2 / res)) <= IZR (up (r1 / res) - 1)).
+    { apply IZR_le. exact HZ. }
+    assert (Heq: IZR (up (r1 / res) - 1) = IZR (up (r1 / res)) - 1).
+    { rewrite minus_IZR. simpl. ring. }
+    rewrite Heq in HIZ.
+    assert (Hbound: IZR (up (r1 / res)) - 1 <= r1 / res).
+    { destruct (archimed (r1 / res)) as [_ Harch2]. lra. }
+    assert (r2 / res <= r1 / res).
+    { apply Rle_trans with (IZR (up (r2 / res))).
+      - apply Rlt_le. exact H2.
+      - apply Rle_trans with (IZR (up (r1 / res)) - 1).
+        + exact HIZ.
+        + exact Hbound. }
+    lra.
+Qed.
+
+(** Helper: INR is monotone. *)
+Lemma INR_monotone : forall n m,
+  (n <= m)%nat -> INR n <= INR m.
+Proof.
+  intros n m H.
+  apply le_INR.
+  exact H.
+Qed.
+
+(** Helper: multiplication preserves order for positive reals. *)
+Lemma mult_le_compat_pos : forall x y z,
+  x <= y -> z > 0 -> x * z <= y * z.
+Proof.
+  intros x y z Hxy Hz.
+  apply Rmult_le_compat_r.
+  - left. exact Hz.
+  - exact Hxy.
+Qed.
+
+(** Enumerate_grid_observers is monotone in radius. *)
+Lemma enumerate_grid_observers_radius_monotone : forall origin r1 r2 resolution,
+  resolution > 0 ->
+  0 <= r1 <= r2 ->
+  incl (enumerate_grid_observers origin r1 resolution)
+       (enumerate_grid_observers origin r2 resolution).
+Proof.
+  intros origin r1 r2 resolution Hres [Hr1 Hr2] o Ho.
+  unfold enumerate_grid_observers in *.
+  apply in_flat_map in Ho.
+  destruct Ho as [i [Hi Ho]].
+  apply in_flat_map in Ho.
+  destruct Ho as [j [Hj Ho]].
+  apply in_flat_map in Ho.
+  destruct Ho as [k [Hk Ho]].
+  set (n1 := Z.to_nat (up (r1 / resolution))) in *.
+  set (n2 := Z.to_nat (up (r2 / resolution))) in *.
+  destruct (Rle_dec (norm_state (state_sub
+    (grid_point (Z.of_nat i - Z.of_nat n1) (Z.of_nat j - Z.of_nat n1) (Z.of_nat k - Z.of_nat n1) resolution)
+    origin)) r1) as [Hnorm1|].
+  - simpl in Ho.
+    destruct Ho as [Heq|]; [|contradiction].
+    subst o.
+    assert (Hn: (n1 <= n2)%nat).
+    { unfold n1, n2. apply grid_size_monotone.
+      - exact Hres.
+      - split; [exact Hr1 | exact Hr2]. }
+    set (i2 := (i + (n2 - n1))%nat).
+    set (j2 := (j + (n2 - n1))%nat).
+    set (k2 := (k + (n2 - n1))%nat).
+    assert (Hibound := proj1 (in_seq_bound i 0 (2 * n1 + 1) Hi)).
+    assert (Hjbound := proj1 (in_seq_bound j 0 (2 * n1 + 1) Hj)).
+    assert (Hkbound := proj1 (in_seq_bound k 0 (2 * n1 + 1) Hk)).
+    simpl in Hibound, Hjbound, Hkbound.
+    assert (Hshift_i := grid_index_shift i n1 n2 Hn Hibound).
+    assert (Hshift_j := grid_index_shift j n1 n2 Hn Hjbound).
+    assert (Hshift_k := grid_index_shift k n1 n2 Hn Hkbound).
+    destruct Hshift_i as [Hi2 Heq_i].
+    destruct Hshift_j as [Hj2 Heq_j].
+    destruct Hshift_k as [Hk2 Heq_k].
+    apply in_flat_map.
+    exists i2. split; [apply bound_in_seq_0; exact Hi2|].
+    apply in_flat_map.
+    exists j2. split; [apply bound_in_seq_0; exact Hj2|].
+    apply in_flat_map.
+    exists k2. split; [apply bound_in_seq_0; exact Hk2|].
+    assert (Hpos_eq: grid_point (Z.of_nat i - Z.of_nat n1) (Z.of_nat j - Z.of_nat n1) (Z.of_nat k - Z.of_nat n1) resolution =
+                     grid_point (Z.of_nat i2 - Z.of_nat n2) (Z.of_nat j2 - Z.of_nat n2) (Z.of_nat k2 - Z.of_nat n2) resolution).
+    { apply grid_point_eq_coords; [exact Heq_i | exact Heq_j | exact Heq_k]. }
+    rewrite <- Hpos_eq.
+    destruct (Rle_dec (norm_state (state_sub
+      (grid_point (Z.of_nat i - Z.of_nat n1) (Z.of_nat j - Z.of_nat n1) (Z.of_nat k - Z.of_nat n1) resolution)
+      origin)) r2).
+    + simpl. left. reflexivity.
+    + exfalso. apply n. apply Rle_trans with r1; assumption.
+  - simpl in Ho. contradiction.
+Qed.
+
 (** Observers considered grow monotonically with computational capacity. *)
-Hypothesis monotone_considered_observers : forall c1 c2 origin,
+Lemma monotone_considered_observers : forall c1 c2 origin,
   (c1 <= c2)%nat ->
   incl (considered_observers c1 origin) (considered_observers c2 origin).
+Proof.
+  intros c1 c2 origin Hle.
+  unfold considered_observers.
+  apply enumerate_grid_observers_radius_monotone.
+  - lra.
+  - split.
+    + apply Rle_trans with 0; [apply Rle_refl | apply Rmult_le_pos].
+      * apply pos_INR.
+      * left. apply c_positive.
+    + unfold observation_horizon.
+      apply mult_le_compat_pos.
+      * apply INR_monotone. exact Hle.
+      * apply c_positive.
+Qed.
 
 (** * Section 5: Strategy Optimization *)
 
