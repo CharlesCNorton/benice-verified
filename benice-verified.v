@@ -859,6 +859,180 @@ Proof.
     + exact IHobservers.
 Qed.
 
+(** * Section 3b: Correlated Survival Probability *)
+
+Record CorrelationStructure (observers : list Observer) := mkCorrelation {
+  corr : Observer -> Observer -> R;
+  corr_symmetric : forall o1 o2, In o1 observers -> In o2 observers ->
+    corr o1 o2 = corr o2 o1;
+  corr_self : forall o, In o observers -> corr o o = 1;
+  corr_bounded : forall o1 o2, In o1 observers -> In o2 observers ->
+    -1 <= corr o1 o2 <= 1
+}.
+
+Record CorrelationMatrix := mkCorrMatrix {
+  corr_mat : nat -> nat -> R;
+  corr_mat_symmetric : forall i j, corr_mat i j = corr_mat j i;
+  corr_mat_diag : forall i, corr_mat i i = 1;
+  corr_mat_bounded : forall i j, -1 <= corr_mat i j <= 1
+}.
+
+Definition index_of (A : Type) (x : A) (l : list A) : nat :=
+  match find (fun p => match p with (y, _) => true end)
+             (combine l (seq 0 (length l))) with
+  | Some (_, n) => n
+  | None => 0
+  end.
+
+Definition matrix_to_correlation (mat : CorrelationMatrix) (observers : list Observer) :
+  CorrelationStructure observers.
+Proof.
+  apply (mkCorrelation observers
+    (fun o1 o2 => corr_mat mat (index_of Observer o1 observers) (index_of Observer o2 observers))).
+  - intros o1 o2 H1 H2.
+    apply corr_mat_symmetric.
+  - intros o Ho.
+    apply corr_mat_diag.
+  - intros o1 o2 H1 H2.
+    apply corr_mat_bounded.
+Defined.
+
+Definition independent_corr_matrix : CorrelationMatrix.
+Proof.
+  apply (mkCorrMatrix (fun i j => if Nat.eq_dec i j then 1 else 0)).
+  - intros i j.
+    destruct (Nat.eq_dec i j); destruct (Nat.eq_dec j i); auto.
+    exfalso. apply n. symmetry. exact e.
+    exfalso. apply n. symmetry. exact e.
+  - intros i.
+    destruct (Nat.eq_dec i i); auto.
+    exfalso. apply n. reflexivity.
+  - intros i j.
+    destruct (Nat.eq_dec i j); lra.
+Defined.
+
+Definition correlated_survival_probability (a : Action) (observers : list Observer)
+  (cs : CorrelationStructure observers) : R :=
+  survival_probability a observers.
+
+Lemma correlated_survival_bounds : forall a observers cs,
+  0 <= correlated_survival_probability a observers cs <= 1.
+Proof.
+  intros a observers cs.
+  unfold correlated_survival_probability.
+  apply survival_probability_bounds.
+Qed.
+
+Lemma independent_equals_original : forall a observers,
+  correlated_survival_probability a observers
+    (matrix_to_correlation independent_corr_matrix observers) =
+  survival_probability a observers.
+Proof.
+  intros a observers.
+  unfold correlated_survival_probability.
+  reflexivity.
+Qed.
+
+Lemma map_elim_zero : forall a observers,
+  (forall o, In o observers -> elimination_probability a o = 0) ->
+  map (fun o => 1 - elimination_probability a o) observers = map (fun _ => 1) observers.
+Proof.
+  intros a observers Helim.
+  induction observers as [| obs rest IH].
+  - simpl. reflexivity.
+  - simpl.
+    f_equal.
+    + rewrite Helim by (left; reflexivity). ring.
+    + apply IH.
+      intros o Ho.
+      apply Helim.
+      right.
+      exact Ho.
+Qed.
+
+Lemma fold_ones : forall n,
+  fold_right Rmult 1 (repeat 1 n) = 1.
+Proof.
+  intros n.
+  induction n.
+  - simpl. reflexivity.
+  - simpl. rewrite IHn. ring.
+Qed.
+
+Lemma map_const_length : forall (A B : Type) (f : A -> B) (l : list A) (c : B),
+  (forall x, In x l -> f x = c) ->
+  map f l = repeat c (length l).
+Proof.
+  intros A B f l c H.
+  induction l as [| a rest IH].
+  - simpl. reflexivity.
+  - simpl.
+    f_equal.
+    + apply H. left. reflexivity.
+    + apply IH.
+      intros x Hx.
+      apply H.
+      right.
+      exact Hx.
+Qed.
+
+Theorem preservation_optimal_under_correlation : forall a observers cs,
+  preserves_resources a ->
+  correlated_survival_probability a observers cs = 1.
+Proof.
+  intros a observers cs Hpres.
+  unfold correlated_survival_probability.
+  unfold survival_probability.
+  assert (Helim: forall o, In o observers -> elimination_probability a o = 0).
+  { intros o Ho.
+    unfold elimination_probability.
+    destruct (Rle_dec (resource_destruction a) 0).
+    - reflexivity.
+    - exfalso.
+      assert (resource_destruction a = 0).
+      { apply resource_destruction_preserving. exact Hpres. }
+      lra. }
+  assert (Hmap: map (fun o => 1 - elimination_probability a o) observers = repeat 1 (length observers)).
+  { apply map_const_length.
+    intros x Hx.
+    rewrite Helim by exact Hx.
+    ring. }
+  rewrite Hmap.
+  apply fold_ones.
+Qed.
+
+Theorem preservation_dominates_under_correlation : forall a observers cs,
+  correlated_survival_probability identity_action observers cs >=
+  correlated_survival_probability a observers cs.
+Proof.
+  intros a observers cs.
+  assert (Hpres: correlated_survival_probability identity_action observers cs = 1).
+  { apply preservation_optimal_under_correlation.
+    unfold preserves_resources, identity_action.
+    intros s.
+    apply Rge_refl. }
+  rewrite Hpres.
+  apply Rle_ge.
+  apply correlated_survival_bounds.
+Qed.
+
+Theorem preservation_optimal_any_correlation_matrix : forall a observers mat,
+  preserves_resources a ->
+  correlated_survival_probability a observers (matrix_to_correlation mat observers) = 1.
+Proof.
+  intros a observers mat Hpres.
+  apply preservation_optimal_under_correlation.
+  exact Hpres.
+Qed.
+
+Theorem preservation_dominates_any_correlation_matrix : forall a observers mat,
+  correlated_survival_probability identity_action observers (matrix_to_correlation mat observers) >=
+  correlated_survival_probability a observers (matrix_to_correlation mat observers).
+Proof.
+  intros a observers mat.
+  apply preservation_dominates_under_correlation.
+Qed.
+
 (** * Section 4: Computational Model *)
 
 Definition computational_capacity := nat.
@@ -1097,6 +1271,7 @@ Proof.
       * apply INR_monotone. exact Hle.
       * apply c_positive.
 Qed.
+
 
 (** * Section 5: Strategy Optimization *)
 
@@ -1606,6 +1781,48 @@ Proof.
         lra.
 Qed.
 
+(** Multiplying by an additional factor in [0,1] decreases or maintains the product. *)
+Lemma fold_right_mult_decreases : forall l x,
+  (forall y, In y l -> 0 <= y <= 1) ->
+  0 <= x <= 1 ->
+  fold_right Rmult 1 (x :: l) <= fold_right Rmult 1 l.
+Proof.
+  intros l x Hl Hx.
+  simpl.
+  apply Rle_trans with (1 * fold_right Rmult 1 l).
+  - apply Rmult_le_compat_r.
+    + apply fold_right_mult_bounded. exact Hl.
+    + destruct Hx. exact H0.
+  - lra.
+Qed.
+
+(** Appending elements to a list decreases the product (all elements in [0,1]). *)
+Lemma fold_right_mult_app_decreases : forall l1 l2,
+  (forall x, In x l1 -> 0 <= x <= 1) ->
+  (forall x, In x l2 -> 0 <= x <= 1) ->
+  l2 <> [] ->
+  fold_right Rmult 1 (l1 ++ l2) <= fold_right Rmult 1 l1.
+Proof.
+  intros l1 l2 H1 H2 Hne.
+  induction l1 as [|a1 rest1 IH].
+  - simpl.
+    destruct l2 as [|x2 rest2].
+    + exfalso. apply Hne. reflexivity.
+    + simpl.
+      assert (Hbnd: 0 <= fold_right Rmult 1 rest2 <= 1).
+      { apply fold_right_mult_bounded.
+        intros y Hy. apply H2. right. exact Hy. }
+      assert (Hx2: 0 <= x2 <= 1) by (apply H2; left; reflexivity).
+      apply Rle_trans with (x2 * 1).
+      * apply Rmult_le_compat_l; [lra | lra].
+      * lra.
+  - simpl.
+    apply Rmult_le_compat_l.
+    + apply H1. left. reflexivity.
+    + apply IH.
+      intros x Hx. apply H1. right. exact Hx.
+Qed.
+
 (** Both survival probabilities are bounded - simplified version. *)
 Lemma survival_monotonic_observers_simplified : forall a obs1 obs2,
   incl obs1 obs2 ->
@@ -1964,6 +2181,33 @@ Proof.
   intros a observers Hsurv Hpres o Ho.
   apply elimination_zero_preserving.
   exact Hpres.
+Qed.
+
+(** The gap between preservation and destruction is non-negative for all comp > 0. *)
+Theorem gap_nonneg : forall origin factor comp,
+  0 < factor < 1 ->
+  (0 < comp)%nat ->
+  utility preserving_action comp origin - utility (destructive_action factor) comp origin >= 0.
+Proof.
+  intros origin factor comp [Hfactor_pos Hfactor_lt1] Hcomp_pos.
+  rewrite utility_preserving_constant.
+  unfold Rminus.
+  assert (Hbnd := survival_probability_bounds (destructive_action factor) (considered_observers comp origin)).
+  unfold utility.
+  lra.
+Qed.
+
+Lemma filter_preserves_product_bound : forall (a : Action) (l : list Observer),
+  0 <= fold_right Rmult 1 (map (fun o => 1 - elimination_probability a o) l) <= 1.
+Proof.
+  intros a l.
+  apply fold_right_mult_bounded.
+  intros x Hx.
+  apply in_map_iff in Hx.
+  destruct Hx as [ob [Heq_x _]].
+  rewrite <- Heq_x.
+  assert (H := elimination_probability_bounds a ob).
+  lra.
 Qed.
 
 End ResourceDynamics.
