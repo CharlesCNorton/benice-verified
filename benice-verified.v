@@ -868,6 +868,79 @@ Qed.
 
 (** * Section 3: Elimination Probability and Survival *)
 
+Definition event_rate (destruction : R) (threshold : R) : R :=
+  Rabs destruction / threshold.
+
+Lemma event_rate_nonneg : forall d t,
+  t > 0 -> event_rate d t >= 0.
+Proof.
+  intros d t Ht.
+  unfold event_rate.
+  apply Rle_ge.
+  unfold Rdiv.
+  apply Rmult_le_pos.
+  - apply Rabs_pos.
+  - left. apply Rinv_0_lt_compat. exact Ht.
+Qed.
+
+Lemma poisson_detection_probability : forall lambda,
+  lambda >= 0 ->
+  0 <= 1 - exp (- lambda) <= 1.
+Proof.
+  intros lambda Hlambda.
+  split.
+  - assert (Hexp: exp (- lambda) <= 1).
+    { rewrite <- exp_0.
+      destruct (Rle_dec (- lambda) 0).
+      - destruct r.
+        + left. apply exp_increasing. exact H.
+        + rewrite H. apply Rle_refl.
+      - assert (Hpos: 0 < - lambda) by (apply Rnot_le_gt; exact n).
+        assert (Hcontra: lambda < 0) by lra.
+        exfalso. apply Rge_not_lt with lambda 0; assumption. }
+    lra.
+  - assert (Hexp_pos: 0 < exp (- lambda)) by apply exp_pos.
+    lra.
+Qed.
+
+Theorem elimination_function_from_poisson : forall destruction threshold,
+  threshold > 0 ->
+  let lambda := event_rate destruction threshold in
+  let p := 1 - exp (- lambda) in
+  0 <= p <= 1 /\
+  (destruction = 0 -> p = 0) /\
+  (Rabs destruction > 0 -> p > 0).
+Proof.
+  intros destruction threshold Hthresh lambda p.
+  split; [|split].
+  - unfold p, lambda.
+    apply poisson_detection_probability.
+    apply event_rate_nonneg.
+    exact Hthresh.
+  - intro Hzero.
+    unfold p, lambda, event_rate.
+    rewrite Hzero.
+    rewrite Rabs_R0.
+    unfold Rdiv.
+    rewrite Rmult_0_l.
+    rewrite Ropp_0.
+    rewrite exp_0.
+    ring.
+  - intro Hpos.
+    unfold p, lambda, event_rate.
+    assert (Hlambda_pos: 0 < Rabs destruction / threshold).
+    { unfold Rdiv.
+      apply Rmult_lt_0_compat.
+      - exact Hpos.
+      - apply Rinv_0_lt_compat. exact Hthresh. }
+    apply Rlt_0_minus.
+    rewrite <- exp_0.
+    apply exp_increasing.
+    apply Ropp_lt_cancel.
+    rewrite Ropp_0, Ropp_involutive.
+    exact Hlambda_pos.
+Qed.
+
 Record EliminationFunction := mkElimination {
   elim_prob : Action -> Observer -> R;
   elim_bounded : forall a o, 0 <= elim_prob a o <= 1;
@@ -881,6 +954,18 @@ Record EliminationFunction := mkElimination {
 Definition elimination_probability (a : Action) (o : Observer) : R :=
   if Rle_dec (resource_destruction a) 0 then 0
   else 1 - exp (- Rabs (resource_destruction a) / obs_threshold o).
+
+Corollary elimination_probability_has_poisson_form : forall a o,
+  elimination_probability a o =
+  if Rle_dec (resource_destruction a) 0 then 0
+  else 1 - exp (- event_rate (resource_destruction a) (obs_threshold o)).
+Proof.
+  intros a o.
+  unfold elimination_probability, event_rate.
+  destruct (Rle_dec (resource_destruction a) 0).
+  - reflexivity.
+  - f_equal. f_equal. field. apply Rgt_not_eq. apply obs_threshold_pos.
+Qed.
 
 (** Elimination probability is bounded between 0 and 1. *)
 Lemma elimination_probability_bounds : forall a o,
