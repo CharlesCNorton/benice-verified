@@ -1037,10 +1037,26 @@ Qed.
 
 Definition computational_capacity := nat.
 
+Record HorizonFunction := mkHorizon {
+  horizon : computational_capacity -> R;
+  horizon_nonneg : forall comp, horizon comp >= 0;
+  horizon_monotone : forall c1 c2, (c1 <= c2)%nat -> horizon c1 <= horizon c2
+}.
+
+Definition linear_horizon : HorizonFunction.
+Proof.
+  apply (mkHorizon (fun comp => INR comp)).
+  - intros comp. apply Rle_ge. apply pos_INR.
+  - intros c1 c2 Hle. apply le_INR. exact Hle.
+Defined.
+
 Definition observation_horizon (comp : computational_capacity) : R := INR comp.
 
 Definition considered_observers (comp : computational_capacity) (origin : State) : list Observer :=
   enumerate_grid_observers origin (observation_horizon comp * c) 1.
+
+Definition considered_observers_general (hf : HorizonFunction) (comp : computational_capacity) (origin : State) : list Observer :=
+  enumerate_grid_observers origin (horizon hf comp * c) 1.
 
 (** Helper: membership in seq implies bound. *)
 Lemma in_seq_bound : forall i start len,
@@ -1272,11 +1288,49 @@ Proof.
       * apply c_positive.
 Qed.
 
+Lemma monotone_considered_observers_general : forall hf c1 c2 origin,
+  (c1 <= c2)%nat ->
+  incl (considered_observers_general hf c1 origin) (considered_observers_general hf c2 origin).
+Proof.
+  intros hf c1 c2 origin Hle.
+  unfold considered_observers_general.
+  apply enumerate_grid_observers_radius_monotone.
+  - lra.
+  - split.
+    + apply Rle_trans with 0; [apply Rle_refl | apply Rmult_le_pos].
+      * apply Rge_le. apply horizon_nonneg.
+      * left. apply c_positive.
+    + apply Rmult_le_compat_r.
+      * left. apply c_positive.
+      * apply horizon_monotone. exact Hle.
+Qed.
+
+Lemma linear_horizon_equals_original : forall comp origin,
+  considered_observers_general linear_horizon comp origin = considered_observers comp origin.
+Proof.
+  intros comp origin.
+  unfold considered_observers_general, considered_observers, linear_horizon, observation_horizon.
+  simpl.
+  reflexivity.
+Qed.
+
 
 (** * Section 5: Strategy Optimization *)
 
 Definition utility (a : Action) (comp : computational_capacity) (origin : State) : R :=
   survival_probability a (considered_observers comp origin).
+
+Definition utility_general (hf : HorizonFunction) (a : Action) (comp : computational_capacity) (origin : State) : R :=
+  survival_probability a (considered_observers_general hf comp origin).
+
+Lemma utility_linear_equals_original : forall a comp origin,
+  utility_general linear_horizon a comp origin = utility a comp origin.
+Proof.
+  intros a comp origin.
+  unfold utility_general, utility.
+  rewrite linear_horizon_equals_original.
+  reflexivity.
+Qed.
 
 Definition preserving_action : Action :=
   identity_action.
@@ -1628,6 +1682,76 @@ Proof.
   exists 1%nat.
   intros comp a Hcomp Hdest.
   unfold utility.
+  apply survival_decreasing_in_destruction.
+  rewrite resource_destruction_preserving.
+  apply Rlt_le.
+  apply resource_destruction_destroying.
+  assumption.
+  apply preserving_action_preserves.
+Qed.
+
+Definition is_optimal_general (hf : HorizonFunction) (a : Action) (comp : computational_capacity) (origin : State) : Prop :=
+  forall a', utility_general hf a comp origin >= utility_general hf a' comp origin.
+
+Theorem preservation_is_optimal_general : forall hf comp origin,
+  (comp > 0)%nat ->
+  is_optimal_general hf preserving_action comp origin.
+Proof.
+  intros hf comp origin Hcomp.
+  unfold is_optimal_general.
+  intro a'.
+  unfold utility_general.
+  assert (Hpres: survival_probability preserving_action (considered_observers_general hf comp origin) = 1).
+  { unfold survival_probability.
+    assert (Helim: forall o, In o (considered_observers_general hf comp origin) -> elimination_probability preserving_action o = 0).
+    { intros o Ho.
+      unfold elimination_probability.
+      destruct (Rle_dec (resource_destruction preserving_action) 0).
+      - reflexivity.
+      - exfalso.
+        assert (resource_destruction preserving_action = 0).
+        { apply resource_destruction_preserving.
+          apply preserving_action_preserves. }
+        lra. }
+    assert (Hmap: map (fun o => 1 - elimination_probability preserving_action o) (considered_observers_general hf comp origin) =
+                  repeat 1 (length (considered_observers_general hf comp origin))).
+    { apply map_const_length.
+      intros x Hx.
+      rewrite Helim by exact Hx.
+      ring. }
+    rewrite Hmap.
+    apply fold_ones. }
+  rewrite Hpres.
+  apply Rle_ge.
+  apply survival_probability_bounds.
+Qed.
+
+Theorem main_convergence_general :
+  forall hf comp origin a,
+  (comp > 0)%nat ->
+  is_optimal_general hf a comp origin ->
+  utility_general hf a comp origin = utility_general hf preserving_action comp origin.
+Proof.
+  intros hf comp origin a Hcomp Hopt.
+  assert (Hpres_opt := preservation_is_optimal_general hf comp origin Hcomp).
+  unfold is_optimal_general in *.
+  assert (Ha_le_pres: utility_general hf a comp origin <= utility_general hf preserving_action comp origin).
+  { apply Rge_le. apply Hpres_opt. }
+  assert (Hpres_le_a: utility_general hf preserving_action comp origin <= utility_general hf a comp origin).
+  { apply Rge_le. apply Hopt. }
+  apply Rle_antisym; assumption.
+Qed.
+
+Theorem preservation_dominates_asymptotically_general :
+  forall hf origin,
+  exists N, forall comp a, (comp > N)%nat ->
+  destroys_resources a ->
+  utility_general hf preserving_action comp origin >= utility_general hf a comp origin.
+Proof.
+  intros hf origin.
+  exists 1%nat.
+  intros comp a Hcomp Hdest.
+  unfold utility_general.
   apply survival_decreasing_in_destruction.
   rewrite resource_destruction_preserving.
   apply Rlt_le.
@@ -2211,3 +2335,4 @@ Proof.
 Qed.
 
 End ResourceDynamics.
+    
