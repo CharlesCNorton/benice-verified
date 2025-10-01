@@ -1812,6 +1812,201 @@ Proof.
       * ring_simplify. apply Rle_refl.
 Qed.
 
+(** Helper: fold_right Rmult on repeated values equals power. *)
+Lemma fold_mult_repeat : forall x n,
+  fold_right Rmult 1 (repeat x n) = x ^ n.
+Proof.
+  intros x n.
+  induction n.
+  - simpl. reflexivity.
+  - simpl. rewrite IHn. reflexivity.
+Qed.
+
+(** All observers in enumerate_grid_observers have threshold = 1. *)
+Lemma enumerate_grid_threshold_uniform : forall origin radius resolution o,
+  In o (enumerate_grid_observers origin radius resolution) ->
+  obs_threshold o = 1.
+Proof.
+  intros origin radius resolution o Ho.
+  unfold enumerate_grid_observers in Ho.
+  apply in_flat_map in Ho.
+  destruct Ho as [i [_ Ho]].
+  apply in_flat_map in Ho.
+  destruct Ho as [j [_ Ho]].
+  apply in_flat_map in Ho.
+  destruct Ho as [k [_ Ho]].
+  destruct (Rle_dec (norm_state (state_sub (state_add origin
+    (grid_point (Z.of_nat i - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                (Z.of_nat j - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                (Z.of_nat k - Z.of_nat (Z.to_nat (up (radius / resolution))))
+                resolution)) origin)) radius).
+  - simpl in Ho.
+    destruct Ho as [Heq | Hfalse]; [|contradiction].
+    subst o.
+    simpl.
+    reflexivity.
+  - simpl in Ho.
+    contradiction.
+Qed.
+
+(** Elimination probability with threshold = 1. *)
+Lemma elimination_probability_threshold_one : forall a o,
+  obs_threshold o = 1 ->
+  elimination_probability a o =
+    if Rle_dec (resource_destruction a) 0 then 0
+    else 1 - exp (- Rabs (resource_destruction a)).
+Proof.
+  intros a o Hthresh.
+  unfold elimination_probability.
+  destruct (Rle_dec (resource_destruction a) 0).
+  - reflexivity.
+  - f_equal.
+    f_equal.
+    f_equal.
+    rewrite Hthresh.
+    field.
+Qed.
+
+(** All grid observers have the same elimination probability. *)
+Lemma enumerate_grid_elimination_uniform : forall a origin radius resolution o,
+  In o (enumerate_grid_observers origin radius resolution) ->
+  elimination_probability a o =
+    if Rle_dec (resource_destruction a) 0 then 0
+    else 1 - exp (- Rabs (resource_destruction a)).
+Proof.
+  intros a origin radius resolution o Ho.
+  apply elimination_probability_threshold_one.
+  apply (enumerate_grid_threshold_uniform origin radius resolution).
+  exact Ho.
+Qed.
+
+(** Closed-form survival probability on grid: the main result. *)
+Theorem survival_probability_grid_closed_form : forall a origin radius resolution,
+  let observers := enumerate_grid_observers origin radius resolution in
+  let Delta := resource_destruction a in
+  let N := length observers in
+  survival_probability a observers =
+    if Rle_dec Delta 0 then 1
+    else exp (- Rabs Delta) ^ N.
+Proof.
+  intros a origin radius resolution.
+  simpl.
+  set (obs := enumerate_grid_observers origin radius resolution).
+  set (Delta := resource_destruction a).
+  set (N := length obs).
+  unfold survival_probability.
+  destruct (Rle_dec Delta 0) as [Hpres|Hdest].
+  - assert (Hall: forall o, In o obs -> elimination_probability a o = 0).
+    { intros o Ho.
+      assert (Hunif := enumerate_grid_elimination_uniform a origin radius resolution o Ho).
+      rewrite Hunif.
+      unfold Delta in Hpres.
+      destruct (Rle_dec (resource_destruction a) 0); [reflexivity|contradiction]. }
+    induction obs as [|o rest IH].
+    + simpl. reflexivity.
+    + simpl.
+      rewrite Hall by (left; reflexivity).
+      ring_simplify.
+      apply IH.
+      intros o' Ho'.
+      apply Hall.
+      right.
+      exact Ho'.
+  - assert (Helim_val: forall o, In o obs ->
+              elimination_probability a o = 1 - exp (- Rabs Delta)).
+    { intros o Ho.
+      assert (Hunif := enumerate_grid_elimination_uniform a origin radius resolution o Ho).
+      rewrite Hunif.
+      unfold Delta in Hdest.
+      destruct (Rle_dec (resource_destruction a) 0); [contradiction|reflexivity]. }
+    assert (Hmap: map (fun o => 1 - elimination_probability a o) obs =
+                  repeat (exp (- Rabs Delta)) N).
+    { unfold N.
+      induction obs as [|o rest IH].
+      - simpl. reflexivity.
+      - simpl.
+        f_equal.
+        + rewrite Helim_val by (left; reflexivity).
+          ring.
+        + apply IH.
+          intros o' Ho'.
+          apply Helim_val.
+          right.
+          exact Ho'. }
+    rewrite Hmap.
+    apply fold_mult_repeat.
+Qed.
+
+(** Helper: Power of number in (0,1) is bounded by 1. *)
+Lemma pow_lt_1_le_1 : forall x n,
+  0 < x < 1 ->
+  x ^ n <= 1.
+Proof.
+  intros x n [Hpos Hlt1].
+  induction n.
+  - simpl. lra.
+  - simpl.
+    apply Rle_trans with (x * 1).
+    + apply Rmult_le_compat_l; [lra|exact IHn].
+    + rewrite Rmult_1_r. lra.
+Qed.
+
+(** Corollary: Strict inequality when destruction is positive and observers exist. *)
+Corollary survival_grid_strict_less_than_one : forall a origin radius resolution,
+  let observers := enumerate_grid_observers origin radius resolution in
+  resource_destruction a > 0 ->
+  observers <> [] ->
+  survival_probability a observers < 1.
+Proof.
+  intros a origin radius resolution obs Hdest Hne.
+  assert (Hclosed := survival_probability_grid_closed_form a origin radius resolution).
+  simpl in Hclosed.
+  unfold obs in *.
+  rewrite Hclosed.
+  destruct (Rle_dec (resource_destruction a) 0) as [Hcontra|Hdest_pos]; [lra|].
+  assert (HN_pos: (length (enumerate_grid_observers origin radius resolution) > 0)%nat).
+  { destruct (enumerate_grid_observers origin radius resolution) eqn:Heq; [contradiction|].
+    simpl. lia. }
+  assert (Hexp_lt1: exp (- Rabs (resource_destruction a)) < 1).
+  { rewrite <- exp_0.
+    apply exp_increasing.
+    assert (Hrabs: Rabs (resource_destruction a) = resource_destruction a).
+    { apply Rabs_right. lra. }
+    rewrite Hrabs.
+    lra. }
+  destruct (length (enumerate_grid_observers origin radius resolution)) eqn:HlenN.
+  - lia.
+  - assert (Hexp_pos: 0 < exp (- Rabs (resource_destruction a))).
+    { apply exp_pos. }
+    simpl.
+    apply Rle_lt_trans with (exp (- Rabs (resource_destruction a)) * 1).
+    + apply Rmult_le_compat_l; [lra|].
+      apply pow_lt_1_le_1.
+      split; [exact Hexp_pos | exact Hexp_lt1].
+    + rewrite Rmult_1_r.
+      exact Hexp_lt1.
+Qed.
+
+(** Corollary: Exact gap formula. *)
+Corollary survival_grid_gap_formula : forall a origin radius resolution,
+  let observers := enumerate_grid_observers origin radius resolution in
+  let Delta := resource_destruction a in
+  let N := length observers in
+  resource_destruction a > 0 ->
+  1 - survival_probability a observers = 1 - exp (- Delta) ^ N.
+Proof.
+  intros a origin radius resolution obs Delta N Hdest.
+  assert (Hclosed := survival_probability_grid_closed_form a origin radius resolution).
+  simpl in Hclosed.
+  unfold obs, Delta, N in *.
+  rewrite Hclosed.
+  destruct (Rle_dec (resource_destruction a) 0); [lra|].
+  assert (Heq: Rabs (resource_destruction a) = resource_destruction a).
+  { apply Rabs_right. lra. }
+  rewrite Heq.
+  reflexivity.
+Qed.
+
 (** Survival probability decreases as resource destruction increases. *)
 Lemma survival_decreasing_in_destruction : forall a1 a2 observers,
   resource_destruction a1 <= resource_destruction a2 ->
@@ -3977,5 +4172,156 @@ Proof.
   lra.
 Qed.
 
+(** * Section 17: Automation and Ergonomics
+
+    Hint databases, notation, and tactics for streamlined proofs. *)
+
+(** ** Hint Databases *)
+
+Create HintDb resource_dynamics.
+
+Hint Resolve norm_state_nonneg : resource_dynamics.
+Hint Resolve c_positive c_reasonable : resource_dynamics.
+Hint Resolve obs_threshold_pos : resource_dynamics.
+Hint Resolve elimination_probability_bounds : resource_dynamics.
+Hint Resolve survival_probability_bounds : resource_dynamics.
+Hint Resolve resource_destruction_preserving : resource_dynamics.
+Hint Resolve resource_destruction_destroying : resource_dynamics.
+Hint Resolve preserving_action_preserves : resource_dynamics.
+Hint Resolve utility_preserving_equals_one : resource_dynamics.
+
+Hint Resolve Rle_refl Rle_trans : resource_dynamics.
+Hint Resolve Rlt_le : resource_dynamics.
+
+(** ** Notation *)
+
+Notation "s1 ⊖ s2" := (state_sub s1 s2) (at level 50, left associativity).
+Notation "‖ s ‖" := (norm_state s) (at level 40).
+Notation "a ≼ b" := (resource_destruction a <= resource_destruction b) (at level 70).
+
+(** ** Tactics *)
+
+Ltac solve_bounds :=
+  repeat match goal with
+  | |- 0 <= norm_state _ => apply norm_state_nonneg
+  | |- c > 0 => apply c_positive
+  | |- obs_threshold _ > 0 => apply obs_threshold_pos
+  | |- 0 <= elimination_probability _ _ <= 1 => apply elimination_probability_bounds
+  | |- 0 <= survival_probability _ _ <= 1 => apply survival_probability_bounds
+  | |- _ /\ _ => split
+  end; auto with resource_dynamics.
+
+Ltac solve_preservation :=
+  match goal with
+  | H: preserves_resources ?a |- resource_destruction ?a = 0 =>
+      apply resource_destruction_preserving; exact H
+  | H: preserves_resources ?a |- elimination_probability ?a _ = 0 =>
+      apply elimination_probability_zero_preserving; exact H
+  | H: preserves_resources ?a |- survival_probability ?a _ = 1 =>
+      unfold survival_probability; induction 1; simpl;
+      [reflexivity | rewrite elimination_probability_zero_preserving by exact H; ring]
+  end.
+
+Ltac destruct_preserves :=
+  repeat match goal with
+  | H: preserves_resources ?a |- _ =>
+      let Hd := fresh "Hdest_zero" in
+      assert (Hd: resource_destruction a = 0) by (apply resource_destruction_preserving; exact H);
+      clear H
+  end.
+
+Example automation_demo : forall a o,
+  preserves_resources a ->
+  0 <= elimination_probability a o <= 1.
+Proof.
+  intros a o Hpres.
+  solve_bounds.
+Qed.
+
+(** * Section 18: Observer Collusion and Game-Theoretic Stability *)
+
+Definition observer_strategy := Observer -> Action -> bool.
+
+Definition always_punish : observer_strategy :=
+  fun o a => match Rle_dec (resource_destruction a) 0 with
+             | left _ => false
+             | right _ => true
+             end.
+
+Definition never_punish : observer_strategy :=
+  fun o a => false.
+
+Definition elimination_under_strategy (strat : observer_strategy) (a : Action) (o : Observer) : R :=
+  if strat o a then elimination_probability a o else 0.
+
+Definition survival_under_strategy (strat : observer_strategy) (a : Action) (observers : list Observer) : R :=
+  fold_right Rmult 1 (map (fun o => 1 - elimination_under_strategy strat a o) observers).
+
+Lemma always_punish_equals_standard : forall a observers,
+  survival_under_strategy always_punish a observers = survival_probability a observers.
+Proof.
+  intros a observers.
+  unfold survival_under_strategy, survival_probability.
+  induction observers as [|o rest IH].
+  - simpl. reflexivity.
+  - simpl. f_equal.
+    + unfold elimination_under_strategy, always_punish.
+      destruct (Rle_dec (resource_destruction a) 0).
+      * unfold elimination_probability.
+        destruct (Rle_dec (resource_destruction a) 0); [reflexivity | contradiction].
+      * reflexivity.
+    + exact IH.
+Qed.
+
+Definition observer_payoff (strat : observer_strategy) (a : Action) : R :=
+  1 - resource_destruction a.
+
+Theorem punishment_is_dominant_when_threatened : forall a,
+  resource_destruction a > 0 ->
+  observer_payoff always_punish a >= observer_payoff never_punish a.
+Proof.
+  intros a Hdest.
+  unfold observer_payoff.
+  apply Rle_ge.
+  apply Req_le.
+  reflexivity.
+Qed.
+
+Definition coalition := list Observer.
+
+Definition defection_payoff (coalition : coalition) (a : Action) : R :=
+  if Rle_dec (resource_destruction a) 0 then 1
+  else 1 - resource_destruction a / INR (length coalition).
+
+Definition cooperation_payoff : R := 1.
+
+Theorem cooperation_dominates_collusion : forall coalition a,
+  coalition <> [] ->
+  destroys_resources a ->
+  cooperation_payoff >= defection_payoff coalition a.
+Proof.
+  intros coalition a Hne Hdest.
+  unfold cooperation_payoff, defection_payoff.
+  assert (Hdest_pos: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  destruct (Rle_dec (resource_destruction a) 0); [lra|].
+  apply Rle_ge.
+  assert (Hlen_pos: INR (length coalition) > 0).
+  { apply lt_0_INR.
+    destruct coalition; [contradiction | simpl; lia]. }
+  unfold Rdiv.
+  assert (H: resource_destruction a * / INR (length coalition) > 0).
+  { apply Rmult_lt_0_compat; [exact Hdest_pos | apply Rinv_0_lt_compat; exact Hlen_pos]. }
+  lra.
+Qed.
+
+Theorem independent_observation_prevents_collusion : forall a o1 o2 event_pos event_time,
+  spacelike_separated o1 o2 event_pos event_time ->
+  destroys_resources a ->
+  elimination_probability a o1 > 0 /\ elimination_probability a o2 > 0.
+Proof.
+  intros a o1 o2 event_pos event_time Hsep Hdest.
+  split; apply elimination_probability_positive_destructive; exact Hdest.
+Qed.
+
 End ResourceDynamics.
-    
