@@ -759,6 +759,16 @@ Qed.
 
 (** * Section 3: Elimination Probability and Survival *)
 
+Record EliminationFunction := mkElimination {
+  elim_prob : Action -> Observer -> R;
+  elim_bounded : forall a o, 0 <= elim_prob a o <= 1;
+  elim_zero_preserving : forall a o, preserves_resources a -> elim_prob a o = 0;
+  elim_positive_destructive : forall a o, destroys_resources a -> elim_prob a o > 0;
+  elim_monotone : forall a1 a2 o,
+    resource_destruction a1 <= resource_destruction a2 ->
+    elim_prob a1 o <= elim_prob a2 o
+}.
+
 Definition elimination_probability (a : Action) (o : Observer) : R :=
   if Rle_dec (resource_destruction a) 0 then 0
   else 1 - exp (- Rabs (resource_destruction a) / obs_threshold o).
@@ -792,8 +802,104 @@ Proof.
   lra.
 Qed.
 
+Lemma elimination_probability_zero_preserving : forall a o,
+  preserves_resources a -> elimination_probability a o = 0.
+Proof.
+  intros a o Hpres.
+  unfold elimination_probability.
+  destruct (Rle_dec (resource_destruction a) 0).
+  - reflexivity.
+  - exfalso.
+    assert (resource_destruction a = 0).
+    { apply resource_destruction_preserving. exact Hpres. }
+    lra.
+Qed.
+
+Lemma elimination_probability_positive_destructive : forall a o,
+  destroys_resources a -> elimination_probability a o > 0.
+Proof.
+  intros a o Hdest.
+  unfold elimination_probability.
+  destruct (Rle_dec (resource_destruction a) 0).
+  - exfalso.
+    assert (resource_destruction a > 0).
+    { apply resource_destruction_destroying. exact Hdest. }
+    lra.
+  - apply Rlt_0_minus.
+    rewrite <- exp_0.
+    apply exp_increasing.
+    unfold Rdiv.
+    rewrite <- Ropp_mult_distr_l.
+    apply Ropp_lt_cancel.
+    rewrite Ropp_0, Ropp_involutive.
+    apply Rmult_lt_0_compat.
+    + apply Rabs_pos_lt.
+      assert (resource_destruction a > 0).
+      { apply resource_destruction_destroying. exact Hdest. }
+      lra.
+    + apply Rinv_0_lt_compat.
+      apply obs_threshold_pos.
+Qed.
+
+Lemma elimination_probability_monotone : forall a1 a2 o,
+  resource_destruction a1 <= resource_destruction a2 ->
+  elimination_probability a1 o <= elimination_probability a2 o.
+Proof.
+  intros a1 a2 o Hle.
+  unfold elimination_probability.
+  destruct (Rle_dec (resource_destruction a1) 0);
+  destruct (Rle_dec (resource_destruction a2) 0).
+  - apply Rle_refl.
+  - assert (0 < 1 - exp (- Rabs (resource_destruction a2) / obs_threshold o)).
+    { apply Rlt_0_minus.
+      rewrite <- exp_0.
+      apply exp_increasing.
+      unfold Rdiv.
+      rewrite <- Ropp_mult_distr_l.
+      apply Ropp_lt_cancel.
+      rewrite Ropp_0, Ropp_involutive.
+      apply Rmult_lt_0_compat.
+      - apply Rabs_pos_lt. lra.
+      - apply Rinv_0_lt_compat. apply obs_threshold_pos. }
+    lra.
+  - exfalso. lra.
+  - apply Rplus_le_compat_l.
+    apply Ropp_le_contravar.
+    destruct (Rle_lt_or_eq_dec _ _ Hle).
+    + left. apply exp_increasing.
+      unfold Rdiv.
+      apply Rmult_lt_compat_r.
+      * apply Rinv_0_lt_compat. apply obs_threshold_pos.
+      * apply Ropp_lt_contravar.
+        unfold Rabs.
+        destruct (Rcase_abs (resource_destruction a1));
+        destruct (Rcase_abs (resource_destruction a2)); lra.
+    + right. rewrite e. reflexivity.
+Qed.
+
+Definition exponential_elimination : EliminationFunction.
+Proof.
+  apply (mkElimination elimination_probability).
+  - apply elimination_probability_bounds.
+  - apply elimination_probability_zero_preserving.
+  - apply elimination_probability_positive_destructive.
+  - apply elimination_probability_monotone.
+Defined.
+
 Definition survival_probability (a : Action) (observers : list Observer) : R :=
   fold_right Rmult 1 (map (fun o => 1 - elimination_probability a o) observers).
+
+Definition survival_probability_general (ef : EliminationFunction) (a : Action) (observers : list Observer) : R :=
+  fold_right Rmult 1 (map (fun o => 1 - elim_prob ef a o) observers).
+
+Lemma exponential_equals_original : forall a observers,
+  survival_probability_general exponential_elimination a observers = survival_probability a observers.
+Proof.
+  intros a observers.
+  unfold survival_probability_general, survival_probability, exponential_elimination.
+  simpl.
+  reflexivity.
+Qed.
 
 (** Survival probability is bounded between 0 and 1. *)
 Lemma survival_probability_bounds : forall a observers,
@@ -1897,6 +2003,45 @@ Proof.
     apply fold_ones. }
   rewrite Hpres.
   apply survival_probability_bounds.
+Qed.
+
+Theorem preservation_optimal_any_elimination_function : forall ef comp origin,
+  (comp > 0)%nat ->
+  forall a, survival_probability_general ef a (considered_observers comp origin) <=
+            survival_probability_general ef preserving_action (considered_observers comp origin).
+Proof.
+  intros ef comp origin Hcomp a.
+  unfold survival_probability_general.
+  assert (Hpres_1: forall o, In o (considered_observers comp origin) -> elim_prob ef preserving_action o = 0).
+  { intros o Ho.
+    apply elim_zero_preserving.
+    apply preserving_action_preserves. }
+  assert (Hmap: map (fun o => 1 - elim_prob ef preserving_action o) (considered_observers comp origin) =
+                repeat 1 (length (considered_observers comp origin))).
+  { apply map_const_length.
+    intros x Hx.
+    rewrite Hpres_1 by exact Hx.
+    ring. }
+  rewrite Hmap.
+  assert (Hfold_1: fold_right Rmult 1 (repeat 1 (length (considered_observers comp origin))) = 1).
+  { apply fold_ones. }
+  rewrite Hfold_1.
+  assert (Hbound: 0 <= fold_right Rmult 1 (map (fun o => 1 - elim_prob ef a o) (considered_observers comp origin)) <= 1).
+  { clear Hpres_1 Hmap Hfold_1.
+    induction (considered_observers comp origin) as [| obs rest IH].
+    - simpl. split; [apply Rle_0_1 | apply Rle_refl].
+    - simpl. split.
+      + apply Rmult_le_pos.
+        * assert (H := elim_bounded ef a obs). lra.
+        * apply IH.
+      + apply Rle_trans with ((1 - 0) * 1).
+        * apply Rmult_le_compat.
+          -- assert (H := elim_bounded ef a obs). lra.
+          -- apply IH.
+          -- assert (H := elim_bounded ef a obs). lra.
+          -- apply IH.
+        * ring_simplify. apply Rle_refl. }
+  apply Hbound.
 Qed.
 
 (** * Section 8: Additional Invariants and Properties *)
