@@ -866,6 +866,60 @@ Proof.
   exact Hbound.
 Qed.
 
+Definition grid_approximation_error (resolution : R) : R :=
+  resolution * sqrt 3.
+
+Lemma sqrt_3_bound : sqrt 3 < 2.
+Proof.
+  assert (H: 3 < 4) by lra.
+  apply sqrt_lt_1 in H.
+  - assert (Hsqrt4: sqrt 4 = 2).
+    { apply Rsqr_inj.
+      - apply sqrt_pos.
+      - lra.
+      - unfold Rsqr. rewrite sqrt_sqrt by lra. ring. }
+    rewrite Hsqrt4 in H. exact H.
+  - lra.
+  - lra.
+Qed.
+
+Lemma approximation_error_bounded : forall resolution,
+  resolution > 0 ->
+  grid_approximation_error resolution < 2 * resolution.
+Proof.
+  intros resolution Hres.
+  unfold grid_approximation_error.
+  assert (H := sqrt_3_bound).
+  apply Rmult_lt_compat_r with (r := resolution) in H; [|exact Hres].
+  lra.
+Qed.
+
+Theorem grid_resolution_bound_sufficient : forall radius resolution,
+  resolution > 0 ->
+  resolution < radius / 10 ->
+  grid_approximation_error resolution < radius / 5.
+Proof.
+  intros radius resolution Hres_pos Hbound.
+  unfold grid_approximation_error.
+  assert (Hsqrt3: sqrt 3 < 2) by apply sqrt_3_bound.
+  assert (H1: resolution * sqrt 3 < 2 * resolution).
+  { assert (H := approximation_error_bounded resolution Hres_pos).
+    unfold grid_approximation_error in H.
+    exact H. }
+  apply Rlt_trans with (2 * resolution).
+  - exact H1.
+  - unfold Rdiv in *.
+    assert (Hrad_pos: radius > 0).
+    { apply radius_positive_from_bound with resolution.
+      split; assumption. }
+    assert (H2: resolution < radius * /10) by exact Hbound.
+    assert (H3: 2 * resolution < 2 * (radius * /10)).
+    { apply Rmult_lt_compat_l; lra. }
+    assert (Heq: 2 * (radius * /10) = radius * /5) by field.
+    rewrite Heq in H3.
+    exact H3.
+Qed.
+
 (** * Section 3: Elimination Probability and Survival *)
 
 Definition event_rate (destruction : R) (threshold : R) : R :=
