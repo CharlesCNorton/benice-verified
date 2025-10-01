@@ -321,6 +321,92 @@ Definition resource_destruction (a : Action) : R :=
   | m_infty => 0
   end.
 
+Lemma norm_reduction_bounded_by_original_norm : forall a s,
+  norm_reduction a s <= norm_state s.
+Proof.
+  intros a s.
+  unfold norm_reduction.
+  assert (H: norm_state (a s) >= 0) by apply norm_state_nonneg.
+  lra.
+Qed.
+
+Theorem norm_reduction_set_has_upper_bound : forall a s_max,
+  (forall s, norm_state s <= norm_state s_max) ->
+  Rbar_is_upper_bound (norm_reduction_set a) (Finite (norm_state s_max)).
+Proof.
+  intros a s_max Hmax.
+  unfold Rbar_is_upper_bound, norm_reduction_set.
+  intros x [s Hs].
+  rewrite Hs.
+  simpl.
+  assert (H := norm_reduction_bounded_by_original_norm a s).
+  apply Rle_trans with (norm_state s).
+  - exact H.
+  - apply Hmax.
+Qed.
+
+Lemma norm_reduction_set_nonempty : forall a,
+  exists r, norm_reduction_set a r.
+Proof.
+  intros a.
+  exists (Finite (norm_reduction a state_zero)).
+  unfold norm_reduction_set.
+  exists state_zero.
+  reflexivity.
+Qed.
+
+Lemma norm_reduction_set_has_finite_elements_only : forall a x,
+  norm_reduction_set a x -> exists r, x = Finite r.
+Proof.
+  intros a x Hx.
+  destruct Hx as [s Hs].
+  exists (norm_reduction a s).
+  exact Hs.
+Qed.
+
+Theorem norm_reduction_set_contains_only_finite_values : forall a,
+  (exists r, norm_reduction_set a r) /\
+  (forall x, norm_reduction_set a x -> exists r, x = Finite r).
+Proof.
+  intro a.
+  split.
+  - apply norm_reduction_set_nonempty.
+  - apply norm_reduction_set_has_finite_elements_only.
+Qed.
+
+Theorem norm_reduction_locally_bounded : forall a s,
+  norm_reduction a s <= norm_state s.
+Proof.
+  apply norm_reduction_bounded_by_original_norm.
+Qed.
+
+Theorem resource_destruction_well_defined : forall a,
+  match Lub_Rbar (norm_reduction_set a) with
+  | Finite r => True
+  | p_infty => True
+  | m_infty => exists x, norm_reduction_set a x -> False
+  end.
+Proof.
+  intro a.
+  destruct (Lub_Rbar (norm_reduction_set a)) eqn:Heq.
+  - exact I.
+  - exact I.
+  - assert (Hnonempty := norm_reduction_set_nonempty a).
+    destruct Hnonempty as [x0 Hx0].
+    assert (Hfinite := norm_reduction_set_has_finite_elements_only a x0 Hx0).
+    destruct Hfinite as [r0 Hr0].
+    exists x0.
+    intro.
+    assert (Hlub := Lub_Rbar_correct (norm_reduction_set a)).
+    rewrite Heq in Hlub.
+    destruct Hlub as [Hub Hleast].
+    rewrite Hr0 in H.
+    unfold is_ub_Rbar in Hub.
+    specialize (Hub r0 H).
+    simpl in Hub.
+    exact Hub.
+Qed.
+
 (** Helper: norm_reduction is non-positive for preserving actions *)
 Lemma norm_reduction_nonpos_preserving : forall a s,
   preserves_resources a -> norm_reduction a s <= 0.
