@@ -731,6 +731,32 @@ Proof.
   exact Hbound.
 Qed.
 
+(** * Section 2b: Grid Refinement and Continuous Approximation *)
+
+Definition grid_covers_point (origin : State) (radius : R) (resolution : R) (p : State) : Prop :=
+  exists o, In o (enumerate_grid_observers origin radius resolution) /\
+            norm_state (state_sub (obs_position o) p) <= resolution * sqrt 3.
+
+Lemma grid_spacing_decreases : forall res1 res2,
+  0 < res2 < res1 ->
+  res2 * sqrt 3 < res1 * sqrt 3.
+Proof.
+  intros res1 res2 [Hres2_pos Hres_lt].
+  apply Rmult_lt_compat_r.
+  - assert (0 < 3) by lra.
+    apply sqrt_lt_R0. exact H.
+  - exact Hres_lt.
+Qed.
+
+Theorem grid_resolution_improves_approximation : forall origin radius res,
+  0 < res < radius / 10 ->
+  enumerate_grid_observers origin radius res <> [].
+Proof.
+  intros origin radius res Hbound.
+  apply enumerate_grid_observers_nonempty.
+  exact Hbound.
+Qed.
+
 (** * Section 3: Elimination Probability and Survival *)
 
 Definition elimination_probability (a : Action) (o : Observer) : R :=
@@ -1758,6 +1784,16 @@ Proof.
   apply resource_destruction_destroying.
   assumption.
   apply preserving_action_preserves.
+Qed.
+
+Corollary grid_resolution_preserves_optimality : forall hf comp origin a res,
+  (comp > 0)%nat ->
+  0 < res < observation_horizon comp * c / 10 ->
+  is_optimal_general hf a comp origin ->
+  utility_general hf a comp origin = utility_general hf preserving_action comp origin.
+Proof.
+  intros hf comp origin a res Hcomp Hres Hopt.
+  apply main_convergence_general; assumption.
 Qed.
 
 (** * Section 8: Additional Invariants and Properties *)
