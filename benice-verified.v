@@ -1141,11 +1141,9 @@ Qed.
 
 (** * Section 6: Convergence Analysis *)
 
-Definition optimal_strategy (comp : computational_capacity) (origin : State) : Action :=
-  if le_dec comp 10 then
-    destructive_action 0.5
-  else
-    preserving_action.
+(** A strategy is optimal if it maximizes utility. *)
+Definition is_optimal (a : Action) (comp : computational_capacity) (origin : State) : Prop :=
+  forall a', utility a comp origin >= utility a' comp origin.
 
 (** Utility of resource-preserving action equals 1. *)
 Lemma utility_preserving_equals_one : forall comp origin,
@@ -1234,6 +1232,21 @@ Proof.
       rewrite <- Ropp_0.
       apply Ropp_lt_contravar. exact H. }
     rewrite exp_0 in H0. lra.
+Qed.
+
+(** For any comp > 0, preservation is optimal among all actions. *)
+Lemma preservation_is_optimal : forall comp origin,
+  (comp > 0)%nat ->
+  is_optimal preserving_action comp origin.
+Proof.
+  intros comp origin Hcomp.
+  unfold is_optimal.
+  intro a'.
+  rewrite utility_preserving_equals_one.
+  assert (Hbound := survival_probability_bounds a' (considered_observers comp origin)).
+  unfold utility.
+  apply Rle_ge.
+  apply Hbound.
 Qed.
 
 (** Helper lemma: survival probability is positive for non-empty observers *)
@@ -1410,24 +1423,22 @@ Qed.
 
 (** * Section 7: Main Convergence Theorem *)
 
-(** Main convergence theorem: Optimal strategies converge to resource preservation
-    as computational capacity increases. *)
+(** Main convergence theorem: Any optimal strategy must be resource-preserving
+    for all computational capacities > 0. *)
 Theorem main_convergence :
-  forall origin eps, eps > 0 ->
-  exists N, forall comp, (comp > N)%nat ->
-  Rabs (utility (optimal_strategy comp origin) comp origin -
-        utility preserving_action comp origin) < eps.
+  forall comp origin a,
+  (comp > 0)%nat ->
+  is_optimal a comp origin ->
+  utility a comp origin = utility preserving_action comp origin.
 Proof.
-  intros origin eps Heps.
-  exists 10%nat.
-  intros comp Hcomp.
-  unfold optimal_strategy.
-  destruct (le_dec comp 10).
-  - exfalso. lia.
-  - unfold Rminus.
-    rewrite Rplus_opp_r.
-    rewrite Rabs_R0.
-    assumption.
+  intros comp origin a Hcomp Hopt.
+  assert (Hpres_opt := preservation_is_optimal comp origin Hcomp).
+  unfold is_optimal in *.
+  assert (Ha_le_pres: utility a comp origin <= utility preserving_action comp origin).
+  { apply Rge_le. apply Hpres_opt. }
+  assert (Hpres_le_a: utility preserving_action comp origin <= utility a comp origin).
+  { apply Rge_le. apply Hopt. }
+  apply Rle_antisym; assumption.
 Qed.
 
 (** Asymptotic dominance theorem: Resource preservation eventually dominates
@@ -1831,34 +1842,6 @@ Qed.
 
 (** * Section 13: Resource Preservation Optimality *)
 
-(** Preserving action is optimal for large computational capacity. *)
-Lemma preserving_optimal_large_comp : forall comp origin,
-  (comp > 10)%nat ->
-  utility (optimal_strategy comp origin) comp origin =
-  utility preserving_action comp origin.
-Proof.
-  intros comp origin Hcomp.
-  unfold optimal_strategy.
-  destruct (le_dec comp 10).
-  - lia.
-  - reflexivity.
-Qed.
-
-(** Optimal strategy converges to preservation. *)
-Lemma optimal_converges_to_preservation : forall origin,
-  forall eps, eps > 0 ->
-  exists N, forall comp, (comp > N)%nat ->
-  utility (optimal_strategy comp origin) comp origin >= 1 - eps.
-Proof.
-  intros origin eps Heps.
-  exists 11%nat.
-  intros comp Hcomp.
-  rewrite preserving_optimal_large_comp.
-  - rewrite utility_preserving_constant.
-    lra.
-  - lia.
-Qed.
-
 (** The gap between preserving and any destructive strategy is positive.  *)
 Lemma preservation_dominance_positive : forall origin factor comp,
   0 < factor < 1 ->
@@ -1984,4 +1967,3 @@ Proof.
 Qed.
 
 End ResourceDynamics.
-          
