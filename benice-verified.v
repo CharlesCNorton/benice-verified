@@ -194,6 +194,104 @@ Proof.
   intro H. exact H.
 Qed.
 
+Lemma norm_state_zero_iff : forall s,
+  norm_state s = 0 <-> s = state_zero.
+Proof.
+  intros [[x y] z].
+  split.
+  - intro H.
+    unfold norm_state in H. simpl in H.
+    unfold pow in H. simpl in H.
+    rewrite !Rmult_1_r in H.
+    assert (H0: x * x + y * y + z * z = 0).
+    { apply sqrt_eq_0 in H. exact H. apply sum_sqr_nonneg. }
+    assert (Hx: x * x = 0).
+    { assert (Hsum: x * x + y * y + z * z = 0) by exact H0.
+      assert (Hyz: 0 <= y * y + z * z).
+      { apply Rplus_le_le_0_compat; apply Rle_0_sqr. }
+      assert (Hx_nonneg: 0 <= x * x) by apply Rle_0_sqr.
+      lra. }
+    assert (Hy: y * y = 0).
+    { assert (Hsum: x * x + y * y + z * z = 0) by exact H0.
+      assert (Hz_nonneg: 0 <= z * z) by apply Rle_0_sqr.
+      assert (Hy_nonneg: 0 <= y * y) by apply Rle_0_sqr.
+      rewrite Hx in Hsum.
+      lra. }
+    assert (Hz: z * z = 0).
+    { assert (Hsum: x * x + y * y + z * z = 0) by exact H0.
+      rewrite Hx, Hy in Hsum.
+      lra. }
+    apply Rsqr_0_uniq in Hx.
+    apply Rsqr_0_uniq in Hy.
+    apply Rsqr_0_uniq in Hz.
+    unfold state_zero. simpl.
+    f_equal.
+    + f_equal; assumption.
+    + assumption.
+  - intro H.
+    rewrite H.
+    unfold norm_state, state_zero. simpl.
+    unfold pow. simpl.
+    rewrite !Rmult_1_r, !Rmult_0_l, !Rplus_0_r.
+    apply sqrt_0.
+Qed.
+
+Lemma norm_state_symmetric : forall s1 s2,
+  norm_state (state_sub s1 s2) = norm_state (state_sub s2 s1).
+Proof.
+  intros [[x1 y1] z1] [[x2 y2] z2].
+  unfold norm_state, state_sub. simpl.
+  f_equal.
+  unfold pow. simpl.
+  rewrite !Rmult_1_r.
+  ring.
+Qed.
+
+Theorem euclidean_norm_is_metric :
+  (forall s1 s2 s3, norm_state (state_sub s1 s3) <= norm_state (state_sub s1 s2) + norm_state (state_sub s2 s3)) /\
+  (forall s1 s2, norm_state (state_sub s1 s2) = norm_state (state_sub s2 s1)) /\
+  (forall s, norm_state (state_sub s s) = 0) /\
+  (forall s1 s2, norm_state (state_sub s1 s2) = 0 -> s1 = s2) /\
+  (forall s, norm_state s >= 0).
+Proof.
+  repeat split.
+  - intros s1 s2 s3.
+    assert (H: state_sub s1 s3 = state_add (state_sub s1 s2) (state_sub s2 s3)).
+    { destruct s1 as [[x1 y1] z1].
+      destruct s2 as [[x2 y2] z2].
+      destruct s3 as [[x3 y3] z3].
+      unfold state_sub, state_add. simpl.
+      f_equal.
+      - f_equal; ring.
+      - ring. }
+    rewrite H.
+    apply norm_state_triangle.
+  - intros s1 s2.
+    apply norm_state_symmetric.
+  - intros [[x y] z].
+    unfold norm_state, state_sub.
+    simpl.
+    unfold Rminus.
+    rewrite !Rplus_opp_r.
+    unfold pow.
+    simpl.
+    rewrite !Rmult_1_r.
+    rewrite !Rmult_0_l.
+    rewrite !Rplus_0_r.
+    apply sqrt_0.
+  - intros s1 s2 H.
+    assert (Heq: state_sub s1 s2 = state_zero).
+    { apply norm_state_zero_iff. exact H. }
+    destruct s1 as [[x1 y1] z1].
+    destruct s2 as [[x2 y2] z2].
+    unfold state_sub, state_zero in Heq. simpl in Heq.
+    inversion Heq.
+    unfold Rminus in H1, H2, H3.
+    f_equal; f_equal; lra.
+  - intros s.
+    apply norm_state_nonneg.
+Qed.
+
 Definition Action := State -> State.
 
 Definition identity_action : Action := fun s => s.
