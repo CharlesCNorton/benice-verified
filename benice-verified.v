@@ -18,7 +18,7 @@
 
 Require Import Reals Lra Lia Psatz.
 Require Import Ranalysis Rpower Rprod.
-Require Import List FunctionalExtensionality Classical.
+Require Import List.
 Require Import PeanoNat.
 From Coquelicot Require Import Coquelicot.
 Require Import RealField.
@@ -357,6 +357,17 @@ Proof.
   unfold c.
   lra.
 Qed.
+
+Record SpeedOfLight := mkSpeed {
+  speed : R;
+  speed_positive : speed > 0
+}.
+
+Definition standard_c : SpeedOfLight.
+Proof.
+  apply (mkSpeed c).
+  apply c_positive.
+Defined.
 
 (** * Section 2: Observer Model and Discrete Approximation *)
 
@@ -1182,6 +1193,57 @@ Proof.
   - intros c1 c2 Hle. apply le_INR. exact Hle.
 Defined.
 
+Lemma linear_horizon_additive : forall n m,
+  horizon linear_horizon (n + m)%nat = horizon linear_horizon n + horizon linear_horizon m.
+Proof.
+  intros n m.
+  unfold linear_horizon.
+  simpl.
+  apply plus_INR.
+Qed.
+
+Lemma linear_horizon_unit : horizon linear_horizon 1%nat = 1.
+Proof.
+  unfold linear_horizon.
+  simpl.
+  apply INR_1.
+Qed.
+
+Lemma linear_horizon_zero : horizon linear_horizon 0%nat = 0.
+Proof.
+  unfold linear_horizon.
+  simpl.
+  reflexivity.
+Qed.
+
+Theorem linear_horizon_unique : forall (hf : HorizonFunction),
+  (forall n m, horizon hf (n + m)%nat = horizon hf n + horizon hf m) ->
+  (horizon hf 1%nat = 1) ->
+  forall n, horizon hf n = horizon linear_horizon n.
+Proof.
+  intros hf Hadd Hunit n.
+  induction n.
+  - unfold linear_horizon. simpl.
+    assert (H: horizon hf 0%nat = horizon hf (0 + 0)%nat) by (f_equal; lia).
+    rewrite Hadd in H.
+    assert (H0: horizon hf 0%nat + horizon hf 0%nat = horizon hf 0%nat) by (rewrite <- H; reflexivity).
+    lra.
+  - replace (S n) with (n + 1)%nat by lia.
+    rewrite Hadd.
+    rewrite IHn.
+    rewrite Hunit.
+    unfold linear_horizon. simpl.
+    rewrite plus_INR.
+    simpl. ring.
+Qed.
+
+Corollary linear_horizon_is_INR : forall n,
+  horizon linear_horizon n = INR n.
+Proof.
+  intros n.
+  unfold linear_horizon. simpl. reflexivity.
+Qed.
+
 Definition observation_horizon (comp : computational_capacity) : R := INR comp.
 
 Definition considered_observers (comp : computational_capacity) (origin : State) : list Observer :=
@@ -1189,6 +1251,18 @@ Definition considered_observers (comp : computational_capacity) (origin : State)
 
 Definition considered_observers_general (hf : HorizonFunction) (comp : computational_capacity) (origin : State) : list Observer :=
   enumerate_grid_observers origin (horizon hf comp * c) 1.
+
+Definition considered_observers_with_c (light_speed : SpeedOfLight) (hf : HorizonFunction) (comp : computational_capacity) (origin : State) : list Observer :=
+  enumerate_grid_observers origin (horizon hf comp * speed light_speed) 1.
+
+Lemma standard_c_equals_original : forall hf comp origin,
+  considered_observers_with_c standard_c hf comp origin = considered_observers_general hf comp origin.
+Proof.
+  intros hf comp origin.
+  unfold considered_observers_with_c, considered_observers_general, standard_c.
+  simpl.
+  reflexivity.
+Qed.
 
 (** Helper: membership in seq implies bound. *)
 Lemma in_seq_bound : forall i start len,
@@ -2029,6 +2103,50 @@ Proof.
   assert (Hbound: 0 <= fold_right Rmult 1 (map (fun o => 1 - elim_prob ef a o) (considered_observers comp origin)) <= 1).
   { clear Hpres_1 Hmap Hfold_1.
     induction (considered_observers comp origin) as [| obs rest IH].
+    - simpl. split; [apply Rle_0_1 | apply Rle_refl].
+    - simpl. split.
+      + apply Rmult_le_pos.
+        * assert (H := elim_bounded ef a obs). lra.
+        * apply IH.
+      + apply Rle_trans with ((1 - 0) * 1).
+        * apply Rmult_le_compat.
+          -- assert (H := elim_bounded ef a obs). lra.
+          -- apply IH.
+          -- assert (H := elim_bounded ef a obs). lra.
+          -- apply IH.
+        * ring_simplify. apply Rle_refl. }
+  apply Hbound.
+Qed.
+
+Theorem preservation_optimal_any_speed_of_light : forall light_speed ef hf comp origin,
+  (comp > 0)%nat ->
+  forall a, survival_probability_general ef a (considered_observers_with_c light_speed hf comp origin) <=
+            survival_probability_general ef preserving_action (considered_observers_with_c light_speed hf comp origin).
+Proof.
+  intros light_speed ef hf comp origin Hcomp a.
+  unfold survival_probability_general.
+  assert (Hpres_1: forall o, In o (considered_observers_with_c light_speed hf comp origin) ->
+                             elim_prob ef preserving_action o = 0).
+  { intros o Ho.
+    apply elim_zero_preserving.
+    apply preserving_action_preserves. }
+  assert (Hmap: map (fun o => 1 - elim_prob ef preserving_action o)
+                    (considered_observers_with_c light_speed hf comp origin) =
+                repeat 1 (length (considered_observers_with_c light_speed hf comp origin))).
+  { apply map_const_length.
+    intros x Hx.
+    rewrite Hpres_1 by exact Hx.
+    ring. }
+  rewrite Hmap.
+  assert (Hfold_1: fold_right Rmult 1
+                              (repeat 1 (length (considered_observers_with_c light_speed hf comp origin))) = 1).
+  { apply fold_ones. }
+  rewrite Hfold_1.
+  assert (Hbound: 0 <= fold_right Rmult 1
+                                  (map (fun o => 1 - elim_prob ef a o)
+                                       (considered_observers_with_c light_speed hf comp origin)) <= 1).
+  { clear Hpres_1 Hmap Hfold_1.
+    induction (considered_observers_with_c light_speed hf comp origin) as [| obs rest IH].
     - simpl. split; [apply Rle_0_1 | apply Rle_refl].
     - simpl. split.
       + apply Rmult_le_pos.
