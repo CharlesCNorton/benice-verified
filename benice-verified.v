@@ -1566,6 +1566,50 @@ Proof.
   ring.
 Qed.
 
+Theorem utility_is_special_case_of_utility_with_cost : forall a comp origin,
+  utility a comp origin = utility_with_cost zero_cost 0 a comp origin.
+Proof.
+  intros a comp origin.
+  symmetry.
+  apply zero_cost_equals_original.
+Qed.
+
+Lemma utility_decomposition : forall cf lambda a comp origin,
+  utility_with_cost cf lambda a comp origin =
+  utility a comp origin - lambda * cost cf a.
+Proof.
+  intros cf lambda a comp origin.
+  unfold utility_with_cost, utility.
+  reflexivity.
+Qed.
+
+Theorem utility_with_cost_generalizes_utility : forall a comp origin cf lambda,
+  lambda = 0 -> cost cf identity_action = 0 ->
+  utility_with_cost cf lambda a comp origin =
+  utility a comp origin - lambda * cost cf a.
+Proof.
+  intros a comp origin cf lambda Hlambda Hid_cost.
+  apply utility_decomposition.
+Qed.
+
+Lemma survival_is_base_utility : forall a,
+  utility a 0%nat state_zero <= 1 /\
+  (forall comp origin, utility a comp origin <= 1).
+Proof.
+  intros a.
+  split.
+  - unfold utility. apply survival_probability_bounds.
+  - intros comp origin. unfold utility. apply survival_probability_bounds.
+Qed.
+
+Theorem utility_eq_survival_when_no_costs : forall a comp origin,
+  utility a comp origin = survival_probability a (considered_observers comp origin).
+Proof.
+  intros a comp origin.
+  unfold utility.
+  reflexivity.
+Qed.
+
 Definition preserving_action : Action :=
   identity_action.
 
