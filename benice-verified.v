@@ -469,6 +469,81 @@ Defined.
 
 (** * Section 2: Observer Model and Discrete Approximation *)
 
+Definition signal_strength (destruction : R) (distance : R) : R :=
+  Rabs destruction / (1 + distance).
+
+Lemma signal_strength_nonneg : forall d dist,
+  dist >= 0 ->
+  signal_strength d dist >= 0.
+Proof.
+  intros d dist Hdist.
+  unfold signal_strength.
+  apply Rle_ge.
+  unfold Rdiv.
+  apply Rmult_le_pos.
+  - apply Rabs_pos.
+  - apply Rlt_le. apply Rinv_0_lt_compat. lra.
+Qed.
+
+Lemma signal_strength_decreases : forall d dist1 dist2,
+  d <> 0 ->
+  0 <= dist1 < dist2 ->
+  signal_strength d dist2 < signal_strength d dist1.
+Proof.
+  intros d dist1 dist2 Hd [Hpos Hlt].
+  unfold signal_strength.
+  unfold Rdiv.
+  apply Rmult_lt_compat_l.
+  - apply Rabs_pos_lt. exact Hd.
+  - apply Rinv_lt_contravar.
+    + apply Rmult_lt_0_compat; lra.
+    + lra.
+Qed.
+
+Definition detection_threshold_theory (noise_level : R) (confidence : R) : R :=
+  noise_level / confidence.
+
+Lemma detection_threshold_positive : forall noise conf,
+  noise > 0 -> conf > 0 ->
+  detection_threshold_theory noise conf > 0.
+Proof.
+  intros noise conf Hnoise Hconf.
+  unfold detection_threshold_theory.
+  unfold Rdiv.
+  apply Rmult_lt_0_compat.
+  - exact Hnoise.
+  - apply Rinv_0_lt_compat. exact Hconf.
+Qed.
+
+Theorem observer_detects_iff_signal_exceeds_threshold : forall destruction distance threshold,
+  distance >= 0 ->
+  threshold > 0 ->
+  (signal_strength destruction distance > threshold <->
+   Rabs destruction > threshold * (1 + distance)).
+Proof.
+  intros destruction distance threshold Hdist Hthresh.
+  unfold signal_strength.
+  split.
+  - intro H.
+    unfold Rdiv in H.
+    apply Rmult_lt_reg_r with (/ (1 + distance)).
+    + apply Rinv_0_lt_compat. lra.
+    + rewrite Rmult_assoc.
+      assert (Hneq: 1 + distance <> 0) by lra.
+      rewrite Rinv_r by exact Hneq.
+      rewrite Rmult_1_r.
+      exact H.
+  - intro H.
+    unfold Rdiv.
+    apply Rmult_lt_reg_r with (1 + distance).
+    + lra.
+    + rewrite Rmult_assoc.
+      assert (Hneq: 1 + distance <> 0) by lra.
+      rewrite Rinv_l by exact Hneq.
+      rewrite Rmult_1_r.
+      exact H.
+Qed.
+
 Record Observer := mkObserver {
   obs_position : State;
   obs_time : R;
