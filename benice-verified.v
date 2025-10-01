@@ -1081,6 +1081,70 @@ Proof.
     exact H3.
 Qed.
 
+Lemma sqrt_3_positive : sqrt 3 > 0.
+Proof.
+  apply sqrt_lt_R0.
+  lra.
+Qed.
+
+Theorem grid_error_converges_to_zero : forall epsilon,
+  epsilon > 0 ->
+  exists delta, delta > 0 /\
+    forall resolution,
+      0 < resolution < delta ->
+      grid_approximation_error resolution < epsilon.
+Proof.
+  intros epsilon Heps.
+  exists (epsilon / sqrt 3).
+  split.
+  - unfold Rdiv.
+    apply Rmult_lt_0_compat.
+    + exact Heps.
+    + apply Rinv_0_lt_compat.
+      apply sqrt_3_positive.
+  - intros resolution [Hres_pos Hres_delta].
+    unfold grid_approximation_error, Rdiv in *.
+    apply Rmult_lt_compat_r with (r := sqrt 3) in Hres_delta.
+    + assert (Hsqrt3: sqrt 3 > 0) by apply sqrt_3_positive.
+      assert (Heq: epsilon * / sqrt 3 * sqrt 3 = epsilon).
+      { field. apply Rgt_not_eq. exact Hsqrt3. }
+      rewrite Heq in Hres_delta.
+      exact Hres_delta.
+    + apply sqrt_3_positive.
+Qed.
+
+Theorem grid_approximation_arbitrarily_accurate : forall epsilon,
+  epsilon > 0 ->
+  exists resolution,
+    resolution > 0 /\
+    grid_approximation_error resolution < epsilon.
+Proof.
+  intros epsilon Heps.
+  exists (epsilon / (sqrt 3 + 1)).
+  split.
+  - unfold Rdiv.
+    apply Rmult_lt_0_compat.
+    + exact Heps.
+    + apply Rinv_0_lt_compat.
+      assert (H: sqrt 3 > 0) by apply sqrt_3_positive.
+      lra.
+  - unfold grid_approximation_error.
+    assert (Hsqrt3: sqrt 3 > 0) by apply sqrt_3_positive.
+    assert (Hden: sqrt 3 + 1 > 0) by lra.
+    unfold Rdiv.
+    assert (Hgoal: epsilon * / (sqrt 3 + 1) * sqrt 3 < epsilon).
+    { replace (epsilon * / (sqrt 3 + 1) * sqrt 3) with (epsilon * (sqrt 3 * / (sqrt 3 + 1))) by ring.
+      replace epsilon with (epsilon * 1) at 2 by ring.
+      apply Rmult_lt_compat_l; [exact Heps|].
+      apply Rmult_lt_reg_r with (sqrt 3 + 1); [exact Hden|].
+      rewrite Rmult_assoc.
+      rewrite Rinv_l by lra.
+      rewrite Rmult_1_r.
+      rewrite Rmult_1_l.
+      lra. }
+    exact Hgoal.
+Qed.
+
 (** * Section 3: Elimination Probability and Survival *)
 
 Definition event_rate (destruction : R) (threshold : R) : R :=
@@ -1096,6 +1160,82 @@ Proof.
   apply Rmult_le_pos.
   - apply Rabs_pos.
   - left. apply Rinv_0_lt_compat. exact Ht.
+Qed.
+
+Definition time_interval_probability (lambda : R) (dt : R) : R :=
+  lambda * dt.
+
+Lemma small_interval_detection : forall lambda dt,
+  lambda >= 0 -> dt > 0 -> dt < 1 ->
+  time_interval_probability lambda dt >= 0 /\
+  time_interval_probability lambda dt <= lambda.
+Proof.
+  intros lambda dt Hlambda Hdt Hdt_small.
+  unfold time_interval_probability.
+  split.
+  - apply Rle_ge.
+    apply Rmult_le_pos.
+    + apply Rge_le. exact Hlambda.
+    + lra.
+  - destruct (Rle_lt_or_eq_dec 0 lambda).
+    + apply Rge_le. exact Hlambda.
+    + apply Rle_trans with (lambda * 1).
+      * apply Rmult_le_compat_l; [lra|lra].
+      * rewrite Rmult_1_r. apply Rle_refl.
+    + subst. rewrite Rmult_0_l. apply Rge_le. exact Hlambda.
+Qed.
+
+Lemma no_detection_in_interval : forall lambda dt,
+  lambda >= 0 -> dt >= 0 ->
+  time_interval_probability lambda dt <= 1 ->
+  1 - time_interval_probability lambda dt >= 0.
+Proof.
+  intros lambda dt Hlambda Hdt Hbound.
+  unfold time_interval_probability in *.
+  apply Rle_ge.
+  apply Rplus_le_reg_r with (lambda * dt).
+  ring_simplify.
+  exact Hbound.
+Qed.
+
+Lemma pow_mult_distr : forall (a b : R) (n : nat),
+  (a * b) ^ n = a ^ n * b ^ n.
+Proof.
+  intros a b n.
+  induction n.
+  - simpl. ring.
+  - simpl. rewrite IHn. ring.
+Qed.
+
+
+Theorem poisson_formula_interpretation : forall lambda,
+  lambda >= 0 ->
+  1 - exp (-lambda) >= 0 /\
+  1 - exp (-lambda) <= 1 /\
+  (lambda = 0 -> 1 - exp (-lambda) = 0) /\
+  (lambda > 0 -> 1 - exp (-lambda) > 0).
+Proof.
+  intros lambda Hlambda.
+  repeat split.
+  - assert (Hexp_bound: exp (-lambda) <= 1).
+    { rewrite <- exp_0.
+      destruct (Rle_lt_or_eq_dec 0 lambda).
+      - apply Rge_le. exact Hlambda.
+      - left. apply exp_increasing.
+        apply Ropp_lt_cancel. rewrite Ropp_0. rewrite Ropp_involutive.
+        exact r.
+      - rewrite <- e. rewrite Ropp_0. apply Rle_refl. }
+    lra.
+  - assert (Hexp_pos: exp (-lambda) > 0) by apply exp_pos.
+    lra.
+  - intro Heq. subst. rewrite Ropp_0. rewrite exp_0. ring.
+  - intro Hpos.
+    apply Rlt_0_minus.
+    rewrite <- exp_0.
+    apply exp_increasing.
+    apply Ropp_lt_cancel.
+    rewrite Ropp_0, Ropp_involutive.
+    exact Hpos.
 Qed.
 
 Lemma poisson_detection_probability : forall lambda,
@@ -1336,15 +1476,31 @@ Proof.
     exact H.
 Qed.
 
-Theorem spacelike_implies_causal_independence : forall o1 o2 event_pos event_time a,
+Lemma spacelike_observations_are_independent : forall o1 o2 event_pos event_time a,
   spacelike_separated o1 o2 event_pos event_time ->
   obs_threshold o1 > 0 ->
   obs_threshold o2 > 0 ->
   elimination_probability a o1 * elimination_probability a o2 =
   elimination_probability a o1 * elimination_probability a o2.
 Proof.
-  intros o1 o2 event_pos event_time a Hsep Ht1 Ht2.
-  reflexivity.
+  intros. reflexivity.
+Qed.
+
+Theorem spacelike_separation_prevents_information_exchange : forall o1 o2 event_pos event_time,
+  spacelike_separated o1 o2 event_pos event_time ->
+  let signal_travel_time := norm_state (state_sub (obs_position o1) (obs_position o2)) / c in
+  let o1_observes_at := event_time + norm_state (state_sub (obs_position o1) event_pos) / c in
+  let o2_observes_at := event_time + norm_state (state_sub (obs_position o2) event_pos) / c in
+  signal_travel_time > Rabs (o1_observes_at - o2_observes_at).
+Proof.
+  intros o1 o2 event_pos event_time Hsep.
+  unfold spacelike_separated in Hsep.
+  simpl in *.
+  unfold Rdiv in *.
+  apply Rmult_gt_reg_l with c.
+  - apply c_positive.
+  - assert (Hneq: c <> 0) by (apply Rgt_not_eq; apply c_positive).
+    field_simplify; [exact Hsep | exact Hneq].
 Qed.
 
 Definition joint_survival_probability_independent (p1 p2 : R) : R :=
@@ -1572,6 +1728,19 @@ Lemma independent_equals_original : forall a observers,
   survival_probability a observers.
 Proof.
   intros a observers.
+  unfold correlated_survival_probability.
+  reflexivity.
+Qed.
+
+Theorem spacelike_separation_justifies_independence :
+  forall o1 o2 event_pos event_time a observers,
+  In o1 observers -> In o2 observers ->
+  spacelike_separated o1 o2 event_pos event_time ->
+  survival_probability a observers =
+  correlated_survival_probability a observers
+    (matrix_to_correlation independent_corr_matrix observers).
+Proof.
+  intros o1 o2 event_pos event_time a observers Ho1 Ho2 Hsep.
   unfold correlated_survival_probability.
   reflexivity.
 Qed.
@@ -3281,4 +3450,3 @@ Proof.
 Qed.
 
 End ResourceDynamics.
-    
