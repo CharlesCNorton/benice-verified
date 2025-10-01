@@ -1358,6 +1358,34 @@ Proof.
   reflexivity.
 Qed.
 
+Record CostFunction := mkCost {
+  cost : Action -> R;
+  cost_nonneg : forall a, cost a >= 0;
+  cost_identity_zero : cost identity_action = 0
+}.
+
+Definition zero_cost : CostFunction.
+Proof.
+  apply (mkCost (fun _ => 0)).
+  - intros a. apply Rle_ge. apply Rle_refl.
+  - reflexivity.
+Defined.
+
+Definition utility_with_cost (cf : CostFunction) (lambda : R) (a : Action) (comp : computational_capacity) (origin : State) : R :=
+  survival_probability a (considered_observers comp origin) - lambda * cost cf a.
+
+Definition utility_with_cost_general (cf : CostFunction) (lambda : R) (hf : HorizonFunction) (a : Action) (comp : computational_capacity) (origin : State) : R :=
+  survival_probability a (considered_observers_general hf comp origin) - lambda * cost cf a.
+
+Lemma zero_cost_equals_original : forall a comp origin,
+  utility_with_cost zero_cost 0 a comp origin = utility a comp origin.
+Proof.
+  intros a comp origin.
+  unfold utility_with_cost, utility, zero_cost.
+  simpl.
+  ring.
+Qed.
+
 Definition preserving_action : Action :=
   identity_action.
 
@@ -1794,6 +1822,81 @@ Corollary grid_resolution_preserves_optimality : forall hf comp origin a res,
 Proof.
   intros hf comp origin a res Hcomp Hres Hopt.
   apply main_convergence_general; assumption.
+Qed.
+
+Theorem preservation_optimal_with_any_cost : forall cf lambda comp origin,
+  (comp > 0)%nat ->
+  lambda >= 0 ->
+  forall a, utility_with_cost cf lambda a comp origin <= utility_with_cost cf lambda preserving_action comp origin.
+Proof.
+  intros cf lambda comp origin Hcomp Hlambda_nonneg a.
+  unfold utility_with_cost.
+  assert (Hsurv: survival_probability preserving_action (considered_observers comp origin) = 1).
+  { unfold survival_probability.
+    assert (forall o, In o (considered_observers comp origin) -> elimination_probability preserving_action o = 0).
+    { intros o Ho.
+      unfold elimination_probability.
+      destruct (Rle_dec (resource_destruction preserving_action) 0).
+      - reflexivity.
+      - exfalso.
+        assert (resource_destruction preserving_action = 0).
+        { apply resource_destruction_preserving. apply preserving_action_preserves. }
+        lra. }
+    assert (Hmap: map (fun o => 1 - elimination_probability preserving_action o) (considered_observers comp origin) =
+                  repeat 1 (length (considered_observers comp origin))).
+    { apply map_const_length.
+      intros x Hx.
+      rewrite H by exact Hx.
+      ring. }
+    rewrite Hmap.
+    apply fold_ones. }
+  rewrite Hsurv.
+  assert (Hcost_zero: cost cf preserving_action = cost cf identity_action).
+  { unfold preserving_action. reflexivity. }
+  rewrite Hcost_zero, cost_identity_zero.
+  ring_simplify.
+  assert (Hsurv_bound: survival_probability a (considered_observers comp origin) <= 1).
+  { apply survival_probability_bounds. }
+  assert (Hcost_ge: cost cf a >= 0).
+  { apply cost_nonneg. }
+  assert (H_lhs: survival_probability a (considered_observers comp origin) - lambda * cost cf a <=
+                 survival_probability a (considered_observers comp origin)).
+  { assert (H_cost_pos: 0 <= lambda * cost cf a).
+    { apply Rmult_le_pos; [apply Rge_le; exact Hlambda_nonneg | apply Rge_le; exact Hcost_ge]. }
+    lra. }
+  apply Rle_trans with (survival_probability a (considered_observers comp origin)).
+  - exact H_lhs.
+  - exact Hsurv_bound.
+Qed.
+
+Theorem preservation_optimal_with_zero_cost : forall comp origin,
+  (comp > 0)%nat ->
+  forall a, utility_with_cost zero_cost 0 a comp origin <= utility_with_cost zero_cost 0 preserving_action comp origin.
+Proof.
+  intros comp origin Hcomp a.
+  repeat rewrite zero_cost_equals_original.
+  unfold utility.
+  assert (Hpres: survival_probability preserving_action (considered_observers comp origin) = 1).
+  { unfold survival_probability.
+    assert (forall o, In o (considered_observers comp origin) -> elimination_probability preserving_action o = 0).
+    { intros o Ho.
+      unfold elimination_probability.
+      destruct (Rle_dec (resource_destruction preserving_action) 0).
+      - reflexivity.
+      - exfalso.
+        assert (resource_destruction preserving_action = 0).
+        { apply resource_destruction_preserving. apply preserving_action_preserves. }
+        lra. }
+    assert (Hmap: map (fun o => 1 - elimination_probability preserving_action o) (considered_observers comp origin) =
+                  repeat 1 (length (considered_observers comp origin))).
+    { apply map_const_length.
+      intros x Hx.
+      rewrite H by exact Hx.
+      ring. }
+    rewrite Hmap.
+    apply fold_ones. }
+  rewrite Hpres.
+  apply survival_probability_bounds.
 Qed.
 
 (** * Section 8: Additional Invariants and Properties *)
