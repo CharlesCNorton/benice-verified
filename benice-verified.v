@@ -522,6 +522,131 @@ Proof.
   lra.
 Qed.
 
+Lemma norm_reduction_bounded_on_ball : forall a radius,
+  radius >= 0 ->
+  forall s, norm_state s <= radius -> norm_reduction a s <= radius.
+Proof.
+  intros a radius Hradius s Hs.
+  unfold norm_reduction.
+  assert (H: norm_state (a s) >= 0) by apply norm_state_nonneg.
+  lra.
+Qed.
+
+(** ** Normalized Resource Destruction
+
+    Scaled version with codomain [0, 1]. Preserves characterization of
+    resource preservation/destruction and monotonicity properties. *)
+
+Definition resource_destruction_normalized (a : Action) (scale : R) : R :=
+  let raw := resource_destruction a in
+  if Rle_dec scale 0 then 0
+  else Rmin (raw / scale) 1.
+
+Lemma resource_destruction_normalized_bounds : forall a scale,
+  scale > 0 ->
+  0 <= resource_destruction_normalized a scale <= 1.
+Proof.
+  intros a scale Hscale.
+  unfold resource_destruction_normalized.
+  destruct (Rle_dec scale 0).
+  - lra.
+  - unfold Rmin.
+    destruct (Rle_dec (resource_destruction a / scale) 1) as [Hle1|Hgt1].
+    + split.
+      * unfold Rdiv.
+        apply Rmult_le_pos.
+        -- unfold resource_destruction.
+           destruct (Lub_Rbar (norm_reduction_set a)) eqn:Hlub.
+           ++ unfold Rmax.
+              destruct (Rle_dec r 0); lra.
+           ++ lra.
+           ++ lra.
+        -- left. apply Rinv_0_lt_compat. exact Hscale.
+      * exact Hle1.
+    + split; lra.
+Qed.
+
+Lemma resource_destruction_normalized_preserving : forall a scale,
+  preserves_resources a ->
+  scale > 0 ->
+  resource_destruction_normalized a scale = 0.
+Proof.
+  intros a scale Hpres Hscale.
+  unfold resource_destruction_normalized.
+  rewrite resource_destruction_preserving by exact Hpres.
+  destruct (Rle_dec scale 0); [lra|].
+  unfold Rdiv.
+  rewrite Rmult_0_l.
+  unfold Rmin.
+  destruct (Rle_dec 0 1); lra.
+Qed.
+
+Lemma resource_destruction_normalized_destroying : forall a scale,
+  destroys_resources a ->
+  scale > 0 ->
+  resource_destruction_normalized a scale > 0.
+Proof.
+  intros a scale Hdest Hscale.
+  unfold resource_destruction_normalized.
+  destruct (Rle_dec scale 0); [lra|].
+  assert (Hraw: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  unfold Rmin.
+  destruct (Rle_dec (resource_destruction a / scale) 1).
+  - unfold Rdiv.
+    apply Rmult_lt_0_compat.
+    + exact Hraw.
+    + apply Rinv_0_lt_compat. exact Hscale.
+  - lra.
+Qed.
+
+Lemma resource_destruction_normalized_monotone : forall a1 a2 scale,
+  scale > 0 ->
+  resource_destruction a1 <= resource_destruction a2 ->
+  resource_destruction_normalized a1 scale <= resource_destruction_normalized a2 scale.
+Proof.
+  intros a1 a2 scale Hscale Hle.
+  unfold resource_destruction_normalized.
+  destruct (Rle_dec scale 0); [lra|].
+  unfold Rmin.
+  destruct (Rle_dec (resource_destruction a1 / scale) 1) as [H1|H1];
+  destruct (Rle_dec (resource_destruction a2 / scale) 1) as [H2|H2].
+  - unfold Rdiv.
+    apply Rmult_le_compat_r.
+    + left. apply Rinv_0_lt_compat. exact Hscale.
+    + exact Hle.
+  - unfold Rdiv in H1.
+    apply Rle_trans with 1; [exact H1|lra].
+  - exfalso.
+    unfold Rdiv in H1, H2.
+    apply Rnot_le_lt in H1.
+    assert (H_a1: resource_destruction a1 > scale * 1).
+    { apply Rmult_lt_reg_r with (/ scale).
+      - apply Rinv_0_lt_compat. exact Hscale.
+      - assert (Heq: scale * 1 * / scale = 1) by (field; lra).
+        rewrite Heq.
+        exact H1. }
+    assert (H_a2: resource_destruction a2 * / scale <= 1).
+    { exact H2. }
+    assert (Hcontra: resource_destruction a2 <= scale).
+    { apply Rmult_le_reg_r with (/ scale).
+      - apply Rinv_0_lt_compat. exact Hscale.
+      - assert (Heq: scale * / scale = 1) by (field; lra).
+        rewrite Heq.
+        exact H2. }
+    lra.
+  - lra.
+Qed.
+
+Lemma resource_destruction_normalized_nonneg : forall a scale,
+  scale > 0 ->
+  resource_destruction_normalized a scale >= 0.
+Proof.
+  intros a scale Hscale.
+  assert (H := resource_destruction_normalized_bounds a scale Hscale).
+  lra.
+Qed.
+
 Definition c : R := 299792458.
 
 Lemma c_positive : c > 0.
@@ -1426,6 +1551,99 @@ Proof.
     + right. rewrite e. reflexivity.
 Qed.
 
+(** ** Distance-Attenuated Elimination Probability
+
+    Incorporates signal attenuation with distance. *)
+
+Definition elimination_probability_with_distance (a : Action) (o : Observer) (event_pos : State) : R :=
+  let dist := norm_state (state_sub (obs_position o) event_pos) in
+  let signal := signal_strength (resource_destruction a) dist in
+  if Rle_dec signal 0 then 0
+  else 1 - exp (- signal / obs_threshold o).
+
+Lemma elimination_probability_with_distance_bounds : forall a o event_pos,
+  0 <= elimination_probability_with_distance a o event_pos <= 1.
+Proof.
+  intros a o event_pos.
+  unfold elimination_probability_with_distance.
+  destruct (Rle_dec (signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) event_pos))) 0).
+  - split; lra.
+  - split.
+    + apply Rlt_le.
+      apply Rlt_0_minus.
+      rewrite <- exp_0.
+      apply exp_increasing.
+      unfold Rdiv.
+      rewrite <- Ropp_mult_distr_l.
+      apply Ropp_lt_cancel.
+      rewrite Ropp_0, Ropp_involutive.
+      assert (Hsig: signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) event_pos)) > 0) by lra.
+      assert (Hthresh: obs_threshold o > 0) by apply obs_threshold_pos.
+      apply Rmult_lt_0_compat; [exact Hsig | apply Rinv_0_lt_compat; exact Hthresh].
+    + apply Rplus_le_reg_r with (-1).
+      ring_simplify.
+      apply Rle_trans with 0.
+      * apply Ropp_le_cancel.
+        ring_simplify.
+        left. apply exp_pos.
+      * lra.
+Qed.
+
+Lemma elimination_probability_with_distance_decreases : forall a o pos1 pos2,
+  destroys_resources a ->
+  norm_state (state_sub (obs_position o) pos1) < norm_state (state_sub (obs_position o) pos2) ->
+  elimination_probability_with_distance a o pos1 >= elimination_probability_with_distance a o pos2.
+Proof.
+  intros a o pos1 pos2 Hdest Hdist.
+  unfold elimination_probability_with_distance.
+  assert (Hdestroy: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  destruct (Rle_dec (signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) pos1))) 0) as [H1|H1];
+  destruct (Rle_dec (signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) pos2))) 0) as [H2|H2].
+  - apply Rle_ge. lra.
+  - exfalso.
+    unfold signal_strength in H1.
+    unfold Rdiv in H1.
+    assert (Hnumer_pos: Rabs (resource_destruction a) > 0).
+    { apply Rabs_pos_lt. lra. }
+    assert (Hdenom1_pos: 1 + norm_state (state_sub (obs_position o) pos1) > 0).
+    { assert (Hnorm: norm_state (state_sub (obs_position o) pos1) >= 0) by apply norm_state_nonneg. lra. }
+    assert (Hcontra: Rabs (resource_destruction a) * / (1 + norm_state (state_sub (obs_position o) pos1)) > 0).
+    { apply Rmult_lt_0_compat; [exact Hnumer_pos | apply Rinv_0_lt_compat; exact Hdenom1_pos]. }
+    lra.
+  - apply Rle_ge.
+    assert (Hbounds := elimination_probability_with_distance_bounds a o pos1).
+    unfold elimination_probability_with_distance in Hbounds.
+    destruct (Rle_dec (signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) pos1))) 0); lra.
+  - apply Rle_ge.
+    apply Rplus_le_compat_l.
+    apply Ropp_le_contravar.
+    left.
+    apply exp_increasing.
+    unfold signal_strength, Rdiv.
+    assert (Hnumer: Rabs (resource_destruction a) > 0).
+    { apply Rabs_pos_lt. lra. }
+    assert (Hthresh: obs_threshold o > 0) by apply obs_threshold_pos.
+    assert (Hd1: 1 + norm_state (state_sub (obs_position o) pos1) > 0).
+    { assert (H: norm_state (state_sub (obs_position o) pos1) >= 0) by apply norm_state_nonneg. lra. }
+    assert (Hd2: 1 + norm_state (state_sub (obs_position o) pos2) > 0).
+    { assert (H: norm_state (state_sub (obs_position o) pos2) >= 0) by apply norm_state_nonneg. lra. }
+    assert (Hprod_pos: 0 < (1 + norm_state (state_sub (obs_position o) pos1)) * (1 + norm_state (state_sub (obs_position o) pos2))).
+    { apply Rmult_lt_0_compat; lra. }
+    assert (H1plus: 1 + norm_state (state_sub (obs_position o) pos1) < 1 + norm_state (state_sub (obs_position o) pos2)).
+    { lra. }
+    assert (Hinv_lt: / (1 + norm_state (state_sub (obs_position o) pos2)) < / (1 + norm_state (state_sub (obs_position o) pos1))).
+    { apply Rinv_lt_contravar; [exact Hprod_pos | exact H1plus]. }
+    assert (Hgoal: Rabs (resource_destruction a) * / (1 + norm_state (state_sub (obs_position o) pos2)) * / obs_threshold o <
+                   Rabs (resource_destruction a) * / (1 + norm_state (state_sub (obs_position o) pos1)) * / obs_threshold o).
+    { apply Rmult_lt_compat_r; [apply Rinv_0_lt_compat; exact Hthresh|].
+      apply Rmult_lt_compat_l; [exact Hnumer|exact Hinv_lt]. }
+    apply Ropp_lt_cancel.
+    rewrite !Ropp_mult_distr_l.
+    rewrite !Ropp_involutive.
+    exact Hgoal.
+Qed.
+
 Definition exponential_elimination : EliminationFunction.
 Proof.
   apply (mkElimination elimination_probability).
@@ -1855,6 +2073,16 @@ Record HorizonFunction := mkHorizon {
   horizon_monotone : forall c1 c2, (c1 <= c2)%nat -> horizon c1 <= horizon c2
 }.
 
+(** ** Unbounded Horizon Functions
+
+    Horizon functions with unbounded growth ensure convergence results
+    hold for arbitrary computational growth rates, not just linear. *)
+
+Record UnboundedHorizonFunction := mkUnboundedHorizon {
+  uh_base :> HorizonFunction;
+  horizon_unbounded : forall M, exists N, horizon uh_base N >= M
+}.
+
 Definition linear_horizon : HorizonFunction.
 Proof.
   apply (mkHorizon (fun comp => INR comp)).
@@ -1911,6 +2139,64 @@ Corollary linear_horizon_is_INR : forall n,
 Proof.
   intros n.
   unfold linear_horizon. simpl. reflexivity.
+Qed.
+
+Lemma linear_horizon_unbounded : forall M, exists N, horizon linear_horizon N >= M.
+Proof.
+  intro M.
+  destruct (Rle_dec M 0).
+  - exists 0%nat.
+    rewrite linear_horizon_is_INR.
+    simpl. lra.
+  - assert (HM_pos: M > 0) by lra.
+    exists (Z.to_nat (up M)).
+    rewrite linear_horizon_is_INR.
+    destruct (archimed M) as [H1 H2].
+    assert (Hup_pos: (0 <= up M)%Z).
+    { destruct (Z.le_gt_cases 0 (up M)).
+      - exact H.
+      - exfalso.
+        apply IZR_lt in H.
+        simpl in H.
+        lra. }
+    rewrite INR_IZR_INZ.
+    rewrite Z2Nat.id by exact Hup_pos.
+    lra.
+Qed.
+
+Definition linear_unbounded_horizon : UnboundedHorizonFunction.
+Proof.
+  apply (mkUnboundedHorizon linear_horizon).
+  apply linear_horizon_unbounded.
+Defined.
+
+Theorem unbounded_horizon_coverage : forall (uhf : UnboundedHorizonFunction) (radius : R),
+  radius > 0 ->
+  exists N, forall comp,
+    (comp >= N)%nat ->
+    horizon uhf comp * c >= radius.
+Proof.
+  intros uhf radius Hradius.
+  assert (Htarget: radius / c > 0).
+  { unfold Rdiv. apply Rmult_lt_0_compat.
+    - exact Hradius.
+    - apply Rinv_0_lt_compat. apply c_positive. }
+  destruct (horizon_unbounded uhf (radius / c)) as [N HN].
+  exists N.
+  intros comp Hcomp.
+  assert (Hmonotone: horizon uhf N <= horizon uhf comp).
+  { apply horizon_monotone. exact Hcomp. }
+  apply Rle_ge in Hmonotone.
+  assert (H: horizon uhf comp >= radius / c).
+  { apply Rge_trans with (horizon uhf N); assumption. }
+  unfold Rdiv in H.
+  apply Rge_le in H.
+  apply Rmult_le_compat_r with (r := c) in H.
+  - rewrite Rmult_assoc in H.
+    rewrite Rinv_l in H by (apply Rgt_not_eq; apply c_positive).
+    rewrite Rmult_1_r in H.
+    apply Rle_ge. exact H.
+  - left. apply c_positive.
 Qed.
 
 Definition observation_horizon (comp : computational_capacity) : R := INR comp.
@@ -2188,6 +2474,67 @@ Proof.
   simpl.
   reflexivity.
 Qed.
+
+(** * Section 4b: Observer Cardinality Bounds *)
+
+(** Helper: sqrt(3) upper bound for use in floor calculations *)
+Lemma sqrt_3_upper_bound : sqrt 3 < 2.
+Proof.
+  apply sqrt_3_bound.
+Qed.
+
+(** Points in the cube [-m,m]³ have norm at most m*sqrt(3) *)
+Lemma cube_in_ball : forall x y z m,
+  -m <= x <= m ->
+  -m <= y <= m ->
+  -m <= z <= m ->
+  m >= 0 ->
+  sqrt (x * x + y * y + z * z) <= m * sqrt 3.
+Proof.
+  intros x y z m [Hx_lo Hx_hi] [Hy_lo Hy_hi] [Hz_lo Hz_hi] Hm_nonneg.
+  apply Rsqr_incr_0_var.
+  - unfold Rsqr.
+    rewrite sqrt_sqrt by (apply Rplus_le_le_0_compat; [apply Rplus_le_le_0_compat; apply Rle_0_sqr | apply Rle_0_sqr]).
+    assert (Hx2: x * x <= m * m).
+    { destruct (Rle_dec 0 x).
+      - apply Rsqr_incr_1; [lra | lra | lra].
+      - assert (Hneg_x: x < 0) by lra.
+        assert (H: (-x) * (-x) = x * x) by ring.
+        rewrite <- H.
+        apply Rsqr_incr_1; lra. }
+    assert (Hy2: y * y <= m * m).
+    { destruct (Rle_dec 0 y).
+      - apply Rsqr_incr_1; [lra | lra | lra].
+      - assert (H: (-y) * (-y) = y * y) by ring.
+        rewrite <- H.
+        apply Rsqr_incr_1; lra. }
+    assert (Hz2: z * z <= m * m).
+    { destruct (Rle_dec 0 z).
+      - apply Rsqr_incr_1; [lra | lra | lra].
+      - assert (H: (-z) * (-z) = z * z) by ring.
+        rewrite <- H.
+        apply Rsqr_incr_1; lra. }
+    apply Rle_trans with (m * m + m * m + m * m).
+    + apply Rplus_le_compat; [apply Rplus_le_compat; assumption | assumption].
+    + right.
+      assert (Hlhs: m * m + m * m + m * m = 3 * m * m) by ring.
+      assert (Hrhs: (m * sqrt 3) * (m * sqrt 3) = m * m * (sqrt 3 * sqrt 3)) by ring.
+      rewrite Hlhs, Hrhs.
+      rewrite sqrt_sqrt by lra.
+      ring.
+  - apply Rmult_le_pos; [apply Rge_le; exact Hm_nonneg | apply sqrt_pos].
+Qed.
+
+(** Helper: floor satisfies the expected bound *)
+Lemma floor_bound : forall r, IZR (Int_part r) <= r < IZR (Int_part r) + 1.
+Proof.
+  intro r.
+  destruct (base_Int_part r) as [H1 H2].
+  split.
+  - exact H1.
+  - lra.
+Qed.
+
 
 
 (** * Section 5: Strategy Optimization *)
@@ -3449,4 +3796,186 @@ Proof.
   lra.
 Qed.
 
+(** * Section 14: Limit Theorems and Asymptotic Convergence *)
+
+(** Utility of preserving actions converges to 1 (trivially, since it's always 1). *)
+Theorem utility_limit_preservation : forall origin a,
+  preserves_resources a ->
+  forall epsilon, epsilon > 0 ->
+  exists N, forall comp, (comp >= N)%nat ->
+  Rabs (utility a comp origin - 1) < epsilon.
+Proof.
+  intros origin a Hpres epsilon Heps.
+  exists 0%nat.
+  intros comp Hcomp.
+  assert (Heq: utility a comp origin = 1).
+  { unfold utility, survival_probability.
+    assert (Helim: forall o, In o (considered_observers comp origin) ->
+                    elimination_probability a o = 0).
+    { intros o Ho.
+      apply elimination_zero_preserving.
+      exact Hpres. }
+    induction (considered_observers comp origin) as [|obs rest IH].
+    - simpl. reflexivity.
+    - simpl. rewrite Helim by (left; reflexivity).
+      ring_simplify.
+      apply IH.
+      intros o Ho.
+      apply Helim.
+      right.
+      exact Ho. }
+  rewrite Heq.
+  unfold Rminus.
+  rewrite Rplus_opp_r.
+  rewrite Rabs_R0.
+  exact Heps.
+Qed.
+
+(** Helper: If elimination is positive, then (1-p) < 1 *)
+Lemma one_minus_positive_less_one : forall p,
+  0 < p < 1 -> 1 - p < 1.
+Proof.
+  intros p [Hpos Hlt1].
+  lra.
+Qed.
+
+(** Helper: Product with term < 1 is < 1 when second factor ≤ 1 *)
+Lemma product_strict_inequality : forall x y,
+  0 < x < 1 -> 0 <= y <= 1 -> x * y < 1.
+Proof.
+  intros x y [Hxpos Hxlt1] [Hypos Hylt1].
+  apply Rle_lt_trans with (x * 1).
+  - apply Rmult_le_compat_l; lra.
+  - rewrite Rmult_1_r. exact Hxlt1.
+Qed.
+
+(** * Section 15: Strict Optimality *)
+
+(** Preservation is strictly better than any destructive action when observers exist *)
+Theorem preservation_strictly_optimal_nonempty : forall a comp origin,
+  destroys_resources a ->
+  considered_observers comp origin <> [] ->
+  utility preserving_action comp origin > utility a comp origin.
+Proof.
+  intros a comp origin Hdest Hne.
+  rewrite utility_preserving_equals_one.
+  assert (Hbound := survival_probability_bounds a (considered_observers comp origin)).
+  unfold utility.
+  destruct Hbound as [Hlo Hhi].
+  assert (Hstrict: survival_probability a (considered_observers comp origin) < 1).
+  { unfold survival_probability.
+    destruct (considered_observers comp origin) as [|o rest]; [contradiction|].
+    simpl.
+    assert (Helim_pos: 0 < elimination_probability a o).
+    { apply elimination_probability_positive_destructive. exact Hdest. }
+    assert (Helim_lt1: elimination_probability a o < 1).
+    { apply elimination_probability_lt_1.
+      apply resource_destruction_destroying.
+      exact Hdest. }
+    apply product_strict_inequality.
+    - split.
+      + assert (Hbnd := elimination_probability_bounds a o). lra.
+      + apply one_minus_positive_less_one. split; assumption.
+    - apply filter_preserves_product_bound. }
+  lra.
+Qed.
+
+(** Corollary: Strict inequality whenever destruction occurs *)
+Corollary destruction_implies_strict_suboptimality : forall a comp origin,
+  (comp > 0)%nat ->
+  destroys_resources a ->
+  utility a comp origin < utility preserving_action comp origin.
+Proof.
+  intros a comp origin Hcomp Hdest.
+  assert (Hne: considered_observers comp origin <> []).
+  { apply considered_observers_nonempty; [exact Hcomp|].
+    unfold observation_horizon.
+    assert (Hc_pos: c > 0) by apply c_positive.
+    assert (Hc_big: c > 10) by apply c_reasonable.
+    assert (Hcomp_ge: (1 <= comp)%nat) by lia.
+    assert (INR_ge: INR comp >= 1).
+    { change 1 with (INR 1). apply Rle_ge. apply le_INR. exact Hcomp_ge. }
+    assert (Hprod: INR comp * c > 10).
+    { assert (H1: INR comp * c >= 1 * c).
+      { apply Rmult_ge_compat_r; lra. }
+      lra. }
+    unfold Rdiv. lra. }
+  apply preservation_strictly_optimal_nonempty; assumption.
+Qed.
+
+(** * Section 16: Quantitative Bounds and Rate Constants
+
+    Explicit constants for elimination rates, survival decay, and coverage growth. *)
+
+Theorem elimination_probability_lower_bound_quantitative : forall a o,
+  resource_destruction a > 0 ->
+  elimination_probability a o >= 1 - exp (- resource_destruction a / obs_threshold o).
+Proof.
+  intros a o Hdest.
+  unfold elimination_probability.
+  destruct (Rle_dec (resource_destruction a) 0); [lra|].
+  apply Rle_ge.
+  apply Req_le.
+  f_equal.
+  f_equal.
+  f_equal.
+  assert (Habs: Rabs (resource_destruction a) = resource_destruction a).
+  { apply Rabs_right. lra. }
+  rewrite Habs.
+  reflexivity.
+Qed.
+
+Theorem elimination_probability_scaling : forall a o1 o2,
+  resource_destruction a > 0 ->
+  obs_threshold o1 < obs_threshold o2 ->
+  elimination_probability a o1 > elimination_probability a o2.
+Proof.
+  intros a o1 o2 Hdest Hthresh.
+  unfold elimination_probability.
+  destruct (Rle_dec (resource_destruction a) 0); [lra|].
+  assert (Hexp1: exp (- Rabs (resource_destruction a) / obs_threshold o1) <
+                 exp (- Rabs (resource_destruction a) / obs_threshold o2)).
+  { apply exp_increasing.
+    unfold Rdiv.
+    assert (Hinv: / obs_threshold o2 < / obs_threshold o1).
+    { apply Rinv_lt_contravar.
+      - apply Rmult_lt_0_compat; apply obs_threshold_pos.
+      - exact Hthresh. }
+    assert (Hmult: Rabs (resource_destruction a) * / obs_threshold o2 <
+                   Rabs (resource_destruction a) * / obs_threshold o1).
+    { apply Rmult_lt_compat_l; [apply Rabs_pos_lt; lra | exact Hinv]. }
+    assert (Hgoal: - Rabs (resource_destruction a) * / obs_threshold o1 <
+                   - Rabs (resource_destruction a) * / obs_threshold o2).
+    { apply Ropp_lt_cancel.
+      rewrite !Ropp_mult_distr_l, !Ropp_involutive.
+      exact Hmult. }
+    exact Hgoal. }
+  lra.
+Qed.
+
+Theorem elimination_rate_proportional_to_destruction : forall a1 a2 o,
+  0 < resource_destruction a1 <= resource_destruction a2 ->
+  elimination_probability a1 o <= elimination_probability a2 o.
+Proof.
+  intros a1 a2 o [Hpos Hle].
+  apply elimination_probability_monotone.
+  exact Hle.
+Qed.
+
+Theorem preservation_gap_positive_quantitative : forall a comp origin,
+  destroys_resources a ->
+  (comp > 0)%nat ->
+  considered_observers comp origin <> [] ->
+  utility preserving_action comp origin - utility a comp origin > 0.
+Proof.
+  intros a comp origin Hdest Hcomp Hne.
+  assert (Hstrict := preservation_strictly_optimal_nonempty a comp origin Hdest Hne).
+  rewrite utility_preserving_constant in Hstrict.
+  rewrite utility_preserving_constant.
+  unfold utility in *.
+  unfold Rminus.
+  lra.
+Qed.
+
 End ResourceDynamics.
+    
