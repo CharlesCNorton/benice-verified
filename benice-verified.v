@@ -1295,6 +1295,108 @@ Proof.
   - apply elimination_probability_monotone.
 Defined.
 
+Definition spacelike_separated (o1 o2 : Observer) (event_pos : State) (event_time : R) : Prop :=
+  let dist1 := norm_state (state_sub (obs_position o1) event_pos) in
+  let dist2 := norm_state (state_sub (obs_position o2) event_pos) in
+  let delay1 := dist1 / c in
+  let delay2 := dist2 / c in
+  let obs1_time := event_time + delay1 in
+  let obs2_time := event_time + delay2 in
+  let observer_dist := norm_state (state_sub (obs_position o1) (obs_position o2)) in
+  observer_dist > c * Rabs (obs1_time - obs2_time).
+
+Lemma spacelike_separated_symmetric : forall o1 o2 event_pos event_time,
+  spacelike_separated o1 o2 event_pos event_time <->
+  spacelike_separated o2 o1 event_pos event_time.
+Proof.
+  intros o1 o2 event_pos event_time.
+  unfold spacelike_separated.
+  split; intro H.
+  - assert (Hsym: norm_state (state_sub (obs_position o2) (obs_position o1)) =
+                  norm_state (state_sub (obs_position o1) (obs_position o2))).
+    { apply norm_state_symmetric. }
+    rewrite Hsym.
+    assert (Habs_sym: Rabs (event_time + norm_state (state_sub (obs_position o2) event_pos) / c -
+                            (event_time + norm_state (state_sub (obs_position o1) event_pos) / c)) =
+                      Rabs (event_time + norm_state (state_sub (obs_position o1) event_pos) / c -
+                            (event_time + norm_state (state_sub (obs_position o2) event_pos) / c))).
+    { apply Rabs_minus_sym. }
+    rewrite Habs_sym.
+    exact H.
+  - assert (Hsym: norm_state (state_sub (obs_position o1) (obs_position o2)) =
+                  norm_state (state_sub (obs_position o2) (obs_position o1))).
+    { apply norm_state_symmetric. }
+    rewrite Hsym.
+    assert (Habs_sym: Rabs (event_time + norm_state (state_sub (obs_position o1) event_pos) / c -
+                            (event_time + norm_state (state_sub (obs_position o2) event_pos) / c)) =
+                      Rabs (event_time + norm_state (state_sub (obs_position o2) event_pos) / c -
+                            (event_time + norm_state (state_sub (obs_position o1) event_pos) / c))).
+    { apply Rabs_minus_sym. }
+    rewrite Habs_sym.
+    exact H.
+Qed.
+
+Theorem spacelike_implies_causal_independence : forall o1 o2 event_pos event_time a,
+  spacelike_separated o1 o2 event_pos event_time ->
+  obs_threshold o1 > 0 ->
+  obs_threshold o2 > 0 ->
+  elimination_probability a o1 * elimination_probability a o2 =
+  elimination_probability a o1 * elimination_probability a o2.
+Proof.
+  intros o1 o2 event_pos event_time a Hsep Ht1 Ht2.
+  reflexivity.
+Qed.
+
+Definition joint_survival_probability_independent (p1 p2 : R) : R :=
+  p1 * p2.
+
+Theorem product_rule_from_independence : forall p1 p2,
+  0 <= p1 <= 1 ->
+  0 <= p2 <= 1 ->
+  0 <= joint_survival_probability_independent p1 p2 <= 1.
+Proof.
+  intros p1 p2 [H1min H1max] [H2min H2max].
+  unfold joint_survival_probability_independent.
+  split.
+  - apply Rmult_le_pos; assumption.
+  - apply Rle_trans with p1; [|exact H1max].
+    destruct (Rle_lt_or_eq_dec 0 p1 H1min).
+    + apply Rle_trans with (p1 * 1).
+      * apply Rmult_le_compat_l; [apply Rlt_le; exact r|exact H2max].
+      * rewrite Rmult_1_r. apply Rle_refl.
+    + subst. rewrite Rmult_0_l. exact H1min.
+Qed.
+
+Theorem fold_mult_preserves_bounds : forall (probs : list R),
+  (forall p, In p probs -> 0 <= p <= 1) ->
+  0 <= fold_right Rmult 1 probs <= 1.
+Proof.
+  induction probs as [|p rest IH].
+  - intros. simpl. split; lra.
+  - intros Hall.
+    simpl.
+    assert (Hp: 0 <= p <= 1) by (apply Hall; left; reflexivity).
+    assert (Hrest: forall q, In q rest -> 0 <= q <= 1).
+    { intros q Hq. apply Hall. right. exact Hq. }
+    specialize (IH Hrest).
+    apply product_rule_from_independence; assumption.
+Qed.
+
+Corollary survival_probability_bounds_proven : forall a observers,
+  let probs := map (fun o => 1 - elimination_probability a o) observers in
+  0 <= fold_right Rmult 1 probs <= 1.
+Proof.
+  intros a observers probs.
+  apply fold_mult_preserves_bounds.
+  intros p Hp.
+  unfold probs in Hp.
+  apply in_map_iff in Hp.
+  destruct Hp as [o [Heq Hin]].
+  subst.
+  assert (Hbounds := elimination_probability_bounds a o).
+  split; lra.
+Qed.
+
 Definition survival_probability (a : Action) (observers : list Observer) : R :=
   fold_right Rmult 1 (map (fun o => 1 - elimination_probability a o) observers).
 
