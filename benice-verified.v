@@ -1479,6 +1479,75 @@ Proof.
     exact Hlambda_pos.
 Qed.
 
+Record EliminationClass := mkEliminationClass {
+  elim : Action -> Observer -> R;
+  elim_class_bounded : forall a o, 0 <= elim a o <= 1;
+  elim_class_computable : forall a o, {r : R | elim a o = r}
+}.
+
+Definition monotone_in_harm (ec : EliminationClass) (harm : Action -> R) : Prop :=
+  forall a1 a2 o, harm a1 <= harm a2 -> elim ec a1 o <= elim ec a2 o.
+
+Record CausalStructure := mkCausalStructure {
+  signal_delay : State -> State -> R;
+  delay_nonneg : forall s1 s2, signal_delay s1 s2 >= 0;
+  delay_symmetric : forall s1 s2, signal_delay s1 s2 = signal_delay s2 s1;
+  delay_triangle : forall s1 s2 s3,
+    signal_delay s1 s3 <= signal_delay s1 s2 + signal_delay s2 s3;
+  delay_computable : forall s1 s2, {d : R | signal_delay s1 s2 = d}
+}.
+
+Definition causally_independent (cs : CausalStructure) (o1 o2 : Observer) (event_pos : State) (event_time : R) : Prop :=
+  let d1 := signal_delay cs event_pos (obs_position o1) in
+  let d2 := signal_delay cs event_pos (obs_position o2) in
+  let sep := signal_delay cs (obs_position o1) (obs_position o2) in
+  sep > Rabs (d1 - d2).
+
+Definition History := list (Action * list Observer).
+
+Record ObserverStrategy := mkObserverStrategy {
+  strategy_func : History -> Action -> bool;
+  strategy_computable : forall h a, {b : bool | strategy_func h a = b}
+}.
+
+Record PayoffStructure := mkPayoffStructure {
+  payoff_func : ObserverStrategy -> Action -> History -> R;
+  payoff_computable : forall s a h, {r : R | payoff_func s a h = r}
+}.
+
+Record World := mkWorld {
+  world_causal : CausalStructure;
+  world_elimination : EliminationClass;
+  world_payoffs : PayoffStructure
+}.
+
+Definition WellFormed (w : World) : Prop :=
+  monotone_in_harm (world_elimination w) resource_destruction.
+
+Record HarmProperties (H : Action -> R) : Prop := mkHarmProperties {
+  H_preserving_zero : forall a, preserves_resources a -> H a = 0;
+  H_destroying_pos : forall a, destroys_resources a -> H a > 0;
+  H_monotone_norm : forall a s, norm_state (a s) <= norm_state s -> H a >= 0
+}.
+
+Theorem harm_preserving_characterization :
+  forall (H : Action -> R),
+  (forall a, preserves_resources a -> H a = 0) ->
+  (forall a, destroys_resources a -> H a > 0) ->
+  forall a, H a = 0 -> preserves_resources a.
+Proof.
+  intros H Hpres Hdest a Hzero.
+  unfold preserves_resources.
+  intros s.
+  destruct (Rle_dec (norm_state s) (norm_state (a s))).
+  - apply Rle_ge. exact r.
+  - exfalso.
+    assert (Hdestroy: destroys_resources a).
+    { unfold destroys_resources. exists s. apply Rnot_le_gt. exact n. }
+    assert (Hpos: H a > 0) by (apply Hdest; exact Hdestroy).
+    lra.
+Qed.
+
 Record EliminationFunction := mkElimination {
   elim_prob : Action -> Observer -> R;
   elim_bounded : forall a o, 0 <= elim_prob a o <= 1;
@@ -4971,5 +5040,67 @@ Proof.
   split; apply elimination_probability_positive_destructive; exact Hdest.
 Qed.
 
+Definition survival_in_world (w : World) (a : Action) (observers : list Observer) : R :=
+  fold_right Rmult 1 (map (fun o => 1 - elim (world_elimination w) a o) observers).
+
+Lemma fold_ones_eq_one : forall observers,
+  fold_right Rmult 1 (map (fun _ : Observer => 1) observers) = 1.
+Proof.
+  induction observers as [|obs rest IH].
+  - reflexivity.
+  - simpl. rewrite IH. lra.
+Qed.
+
+Lemma fold_bounded : forall (w : World) (a : Action) (observers : list Observer),
+  0 <= fold_right Rmult 1 (map (fun o => 1 - elim (world_elimination w) a o) observers) <= 1.
+Proof.
+  intros w a observers.
+  induction observers as [|o rest IH]; [simpl; lra|].
+  simpl. destruct IH as [IHlow IHhigh]. split.
+  - apply Rmult_le_pos; [assert (H := elim_class_bounded (world_elimination w) a o); lra | exact IHlow].
+  - assert (Hbnd := elim_class_bounded (world_elimination w) a o).
+    assert (H1: 0 <= 1 - elim (world_elimination w) a o <= 1) by lra.
+    assert (H2: fold_right Rmult 1 (map (fun o : Observer => 1 - elim (world_elimination w) a o) rest) <= 1) by exact IHhigh.
+    assert (Hfactor: 1 - elim (world_elimination w) a o <= 1) by lra.
+    apply Rle_trans with ((1 - elim (world_elimination w) a o) * 1).
+    + apply Rmult_le_compat_l; lra.
+    + lra.
+Qed.
+
+Theorem preservation_optimal_in_wellformed_world :
+  forall (w : World) a observers,
+  WellFormed w ->
+  destroys_resources a ->
+  (forall a' o, preserves_resources a' -> In o observers -> elim (world_elimination w) a' o = 0) ->
+  (forall a' o, destroys_resources a' -> In o observers -> elim (world_elimination w) a' o > 0) ->
+  observers <> [] ->
+  survival_in_world w preserving_action observers > survival_in_world w a observers.
+Proof.
+  intros w a observers Hwf Hdest Helim_pres Helim_dest Hne.
+  unfold survival_in_world.
+  assert (Hpres_surv: forall o, In o observers -> elim (world_elimination w) preserving_action o = 0).
+  { intros o Ho. apply Helim_pres; [apply preserving_action_preserves | exact Ho]. }
+  assert (Hmap_pres: map (fun o => 1 - elim (world_elimination w) preserving_action o) observers =
+                      map (fun _ => 1) observers).
+  { apply map_ext_in. intros o Ho. assert (Hzero := Hpres_surv o Ho). rewrite Hzero. lra. }
+  rewrite Hmap_pres.
+  rewrite fold_ones_eq_one.
+  destruct observers as [|o rest]; [contradiction|].
+  simpl.
+  unfold WellFormed, monotone_in_harm in Hwf.
+  assert (Hdest_pos: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  assert (Hpres_zero: resource_destruction preserving_action = 0).
+  { apply resource_destruction_preserving. apply preserving_action_preserves. }
+  assert (Helim_pos: elim (world_elimination w) a o > 0).
+  { apply Helim_dest; [exact Hdest | left; reflexivity]. }
+  assert (Hfactor_lt1: 1 - elim (world_elimination w) a o < 1).
+  { assert (Hbnd := elim_class_bounded (world_elimination w) a o). lra. }
+  assert (Hrest_bound := fold_bounded w a rest).
+  apply Rle_lt_trans with ((1 - elim (world_elimination w) a o) * 1).
+  - apply Rmult_le_compat_l; [assert (H := elim_class_bounded (world_elimination w) a o); lra | apply Hrest_bound].
+  - rewrite Rmult_1_r. exact Hfactor_lt1.
+Qed.
+
 End ResourceDynamics.
- 
+   
