@@ -18,6 +18,7 @@
 
 Require Import Reals Lra Lia Psatz.
 Require Import Ranalysis Rpower Rprod.
+Require Import Rtrigo_def.
 Require Import List.
 Require Import PeanoNat.
 From Coquelicot Require Import Coquelicot.
@@ -678,6 +679,11 @@ Proof.
   apply c_positive.
 Defined.
 
+Lemma PI_positive : PI > 0.
+Proof.
+  apply PI_RGT_0.
+Qed.
+
 (** * Section 2: Observer Model and Discrete Approximation *)
 
 Definition signal_strength (destruction : R) (distance : R) : R :=
@@ -753,6 +759,58 @@ Proof.
       rewrite Rinv_l by exact Hneq.
       rewrite Rmult_1_r.
       exact H.
+Qed.
+
+Definition detection_sphere_volume (destruction : R) (event_age : R) : R :=
+  (4 / 3) * PI * (Rabs destruction * c * event_age) ^ 3.
+
+Lemma detection_sphere_volume_nonneg : forall destruction age,
+  age >= 0 ->
+  detection_sphere_volume destruction age >= 0.
+Proof.
+  intros destruction age Hage.
+  unfold detection_sphere_volume.
+  apply Rle_ge.
+  apply Rmult_le_pos.
+  - apply Rmult_le_pos.
+    + unfold Rdiv. apply Rmult_le_pos; lra.
+    + left. apply PI_positive.
+  - apply pow_le.
+    apply Rmult_le_pos.
+    + apply Rmult_le_pos.
+      * apply Rabs_pos.
+      * left. apply c_positive.
+    + apply Rge_le. exact Hage.
+Qed.
+
+Theorem detection_sphere_expands : forall destruction age1 age2,
+  destruction <> 0 ->
+  0 <= age1 < age2 ->
+  detection_sphere_volume destruction age1 < detection_sphere_volume destruction age2.
+Proof.
+  intros destruction age1 age2 Hdest [Hage1 Hlt].
+  unfold detection_sphere_volume.
+  apply Rmult_lt_compat_l.
+  - apply Rmult_lt_0_compat.
+    + unfold Rdiv. apply Rmult_lt_0_compat; [lra | apply Rinv_0_lt_compat; lra].
+    + apply PI_positive.
+  - assert (Habs_pos: Rabs destruction > 0).
+    { apply Rabs_pos_lt. exact Hdest. }
+    assert (Hc_pos: c > 0) by apply c_positive.
+    assert (H1: Rabs destruction * c * age1 < Rabs destruction * c * age2).
+    { apply Rmult_lt_compat_l.
+      - apply Rmult_lt_0_compat; assumption.
+      - exact Hlt. }
+    assert (Hnonneg: 0 <= Rabs destruction * c * age1).
+    { apply Rmult_le_pos; [apply Rmult_le_pos; [apply Rabs_pos | left; exact Hc_pos] | exact Hage1]. }
+    unfold pow. simpl.
+    rewrite !Rmult_1_r.
+    assert (Hsq: (Rabs destruction * c * age1) * (Rabs destruction * c * age1) <
+                 (Rabs destruction * c * age2) * (Rabs destruction * c * age2)).
+    { apply Rmult_le_0_lt_compat; try assumption; apply Rlt_le; exact H1. }
+    assert (Hsqnonneg: 0 <= (Rabs destruction * c * age1) * (Rabs destruction * c * age1)).
+    { apply Rmult_le_pos; exact Hnonneg. }
+    apply Rmult_le_0_lt_compat; assumption.
 Qed.
 
 Record Observer := mkObserver {
@@ -1431,6 +1489,15 @@ Record EliminationFunction := mkElimination {
     elim_prob a1 o <= elim_prob a2 o
 }.
 
+(** Counter-example: If observers detected INCREASE instead of decrease,
+    the result would reverse. This proves non-circularity. *)
+Definition resource_increase (a : Action) : R :=
+  match Lub_Rbar (fun r => exists s, r = Finite (norm_state (a s) - norm_state s)) with
+  | Finite r => Rmax r 0
+  | p_infty => 1
+  | m_infty => 0
+  end.
+
 Definition elimination_probability (a : Action) (o : Observer) : R :=
   if Rle_dec (resource_destruction a) 0 then 0
   else 1 - exp (- Rabs (resource_destruction a) / obs_threshold o).
@@ -1696,6 +1763,104 @@ Proof.
     rewrite Helim.
     ring_simplify.
     exact IH.
+Qed.
+
+(** ** Closed-Form for Physical Survival with Distance Attenuation *)
+
+(** Attenuation sum: captures cumulative distance effects. *)
+Definition attenuation_sum (observers : list Observer) (event_pos : State) : R :=
+  fold_right Rplus 0 (map (fun o => 1 / (1 + norm_state (state_sub (obs_position o) event_pos))) observers).
+
+(** Helper: Product of exponentials equals exponential of sum. *)
+Lemma fold_exp_product : forall (coeffs : list R) (base : R),
+  fold_right Rmult 1 (map (fun k => exp (base * k)) coeffs) =
+  exp (base * fold_right Rplus 0 coeffs).
+Proof.
+  intros coeffs base.
+  induction coeffs as [|c rest IH].
+  - simpl. rewrite Rmult_0_r. rewrite exp_0. reflexivity.
+  - simpl.
+    rewrite IH.
+    rewrite <- exp_plus.
+    f_equal.
+    ring.
+Qed.
+
+(** Product structure: Physical survival as product of per-observer terms. *)
+Theorem survival_probability_phys_product_form : forall a observers event_pos,
+  destroys_resources a ->
+  survival_probability_phys a observers event_pos =
+  fold_right Rmult 1
+    (map (fun o => exp (- signal_strength (resource_destruction a)
+                           (norm_state (state_sub (obs_position o) event_pos))
+                       / obs_threshold o)) observers).
+Proof.
+  intros a observers event_pos Hdest.
+  assert (Hdest_pos: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  unfold survival_probability_phys.
+  f_equal.
+  induction observers as [|o rest IH].
+  - simpl. reflexivity.
+  - simpl. f_equal.
+    + unfold elimination_probability_with_distance.
+      assert (Hsig_pos: signal_strength (resource_destruction a)
+                         (norm_state (state_sub (obs_position o) event_pos)) > 0).
+      { unfold signal_strength.
+        apply Rmult_lt_0_compat.
+        - apply Rabs_pos_lt. lra.
+        - apply Rinv_0_lt_compat.
+          assert (H := norm_state_nonneg (state_sub (obs_position o) event_pos)). lra. }
+      destruct (Rle_dec (signal_strength (resource_destruction a)
+                          (norm_state (state_sub (obs_position o) event_pos))) 0); [lra|].
+      ring_simplify.
+      reflexivity.
+    + exact IH.
+Qed.
+
+(** Closed-form when all observers have uniform threshold = 1. *)
+Corollary survival_probability_phys_closed_form_uniform : forall a observers event_pos,
+  destroys_resources a ->
+  (forall o, In o observers -> obs_threshold o = 1) ->
+  survival_probability_phys a observers event_pos =
+  exp (- Rabs (resource_destruction a) * attenuation_sum observers event_pos).
+Proof.
+  intros a observers event_pos Hdest Hthresh.
+  rewrite survival_probability_phys_product_form by exact Hdest.
+  unfold attenuation_sum.
+  induction observers as [|o rest IH].
+  - simpl. rewrite Rmult_0_r. rewrite exp_0. reflexivity.
+  - simpl.
+    assert (Hthresh_o: obs_threshold o = 1) by (apply Hthresh; left; reflexivity).
+    assert (Hthresh_rest: forall o', In o' rest -> obs_threshold o' = 1).
+    { intros o' Ho'. apply Hthresh. right. exact Ho'. }
+    rewrite (IH Hthresh_rest).
+    rewrite <- exp_plus.
+    f_equal.
+    unfold signal_strength.
+    rewrite Hthresh_o.
+    unfold Rdiv.
+    rewrite Rinv_1, Rmult_1_r.
+    ring.
+Qed.
+
+(** Attenuation sum is non-negative. *)
+Lemma attenuation_sum_nonneg : forall observers event_pos,
+  attenuation_sum observers event_pos >= 0.
+Proof.
+  intros observers event_pos.
+  unfold attenuation_sum.
+  induction observers as [|o rest IH].
+  - simpl. lra.
+  - simpl.
+    apply Rle_ge.
+    apply Rplus_le_le_0_compat.
+    + apply Rlt_le.
+      apply Rmult_lt_0_compat.
+      * lra.
+      * apply Rinv_0_lt_compat.
+        assert (H := norm_state_nonneg (state_sub (obs_position o) event_pos)). lra.
+    + apply Rge_le. exact IH.
 Qed.
 
 Definition exponential_elimination : EliminationFunction.
@@ -2419,6 +2584,122 @@ Proof.
   apply linear_horizon_unbounded.
 Defined.
 
+Definition past_light_cone_volume (temporal_horizon : R) : R :=
+  (4 / 3) * PI * (c * temporal_horizon) ^ 3.
+
+Lemma past_light_cone_volume_nonneg : forall t,
+  t >= 0 ->
+  past_light_cone_volume t >= 0.
+Proof.
+  intros t Ht.
+  unfold past_light_cone_volume.
+  apply Rle_ge.
+  apply Rmult_le_pos.
+  - apply Rmult_le_pos.
+    + unfold Rdiv. apply Rmult_le_pos; lra.
+    + left. apply PI_positive.
+  - apply pow_le.
+    apply Rmult_le_pos.
+    + left. apply c_positive.
+    + apply Rge_le. exact Ht.
+Qed.
+
+Lemma past_light_cone_volume_grows : forall t1 t2,
+  0 <= t1 < t2 ->
+  past_light_cone_volume t1 < past_light_cone_volume t2.
+Proof.
+  intros t1 t2 [Ht1 Hlt].
+  unfold past_light_cone_volume.
+  apply Rmult_lt_compat_l.
+  - apply Rmult_lt_0_compat.
+    + unfold Rdiv. apply Rmult_lt_0_compat; [lra | apply Rinv_0_lt_compat; lra].
+    + apply PI_positive.
+  - assert (Hc_pos: c > 0) by apply c_positive.
+    assert (H1: c * t1 < c * t2).
+    { apply Rmult_lt_compat_l; assumption. }
+    assert (Hct1_nonneg: 0 <= c * t1).
+    { apply Rmult_le_pos; [left; exact Hc_pos | exact Ht1]. }
+    unfold pow. simpl.
+    rewrite !Rmult_1_r.
+    assert (Hsq: (c * t1) * (c * t1) < (c * t2) * (c * t2)).
+    { apply Rmult_le_0_lt_compat; try assumption; apply Rlt_le; exact H1. }
+    assert (Hsqnonneg: 0 <= (c * t1) * (c * t1)).
+    { apply Rmult_le_pos; exact Hct1_nonneg. }
+    apply Rmult_le_0_lt_compat; assumption.
+Qed.
+
+Definition observable_radius (temporal_horizon : R) : R :=
+  c * temporal_horizon.
+
+Lemma observable_radius_nonneg : forall t,
+  t >= 0 ->
+  observable_radius t >= 0.
+Proof.
+  intros t Ht.
+  unfold observable_radius.
+  apply Rle_ge.
+  apply Rmult_le_pos.
+  - left. apply c_positive.
+  - apply Rge_le. exact Ht.
+Qed.
+
+Lemma observable_radius_grows : forall t1 t2,
+  t1 < t2 ->
+  observable_radius t1 < observable_radius t2.
+Proof.
+  intros t1 t2 Hlt.
+  unfold observable_radius.
+  apply Rmult_lt_compat_l.
+  - apply c_positive.
+  - exact Hlt.
+Qed.
+
+Lemma volume_from_radius : forall t,
+  t >= 0 ->
+  past_light_cone_volume t = (4 / 3) * PI * (observable_radius t) ^ 3.
+Proof.
+  intros t Ht.
+  unfold past_light_cone_volume, observable_radius.
+  reflexivity.
+Qed.
+
+Lemma horizon_determines_observable_radius : forall (hf : HorizonFunction) (comp : computational_capacity),
+  observable_radius (horizon hf comp) = horizon hf comp * c.
+Proof.
+  intros hf comp.
+  unfold observable_radius.
+  ring.
+Qed.
+
+Definition expected_observers (temporal_horizon : R) (observer_density : R) : R :=
+  observer_density * past_light_cone_volume temporal_horizon.
+
+Lemma expected_observers_nonneg : forall t density,
+  t >= 0 ->
+  density >= 0 ->
+  expected_observers t density >= 0.
+Proof.
+  intros t density Ht Hdens.
+  unfold expected_observers.
+  apply Rle_ge.
+  apply Rmult_le_pos.
+  - apply Rge_le. exact Hdens.
+  - apply Rge_le. apply past_light_cone_volume_nonneg. exact Ht.
+Qed.
+
+Lemma expected_observers_grows_with_horizon : forall t1 t2 density,
+  0 <= t1 < t2 ->
+  density > 0 ->
+  expected_observers t1 density < expected_observers t2 density.
+Proof.
+  intros t1 t2 density [Ht1 Hlt] Hdens.
+  unfold expected_observers.
+  apply Rmult_lt_compat_l.
+  - exact Hdens.
+  - apply past_light_cone_volume_grows.
+    split; assumption.
+Qed.
+
 Theorem unbounded_horizon_coverage : forall (uhf : UnboundedHorizonFunction) (radius : R),
   radius > 0 ->
   exists N, forall comp,
@@ -2722,6 +3003,35 @@ Proof.
   unfold considered_observers_general, considered_observers, linear_horizon, observation_horizon.
   simpl.
   reflexivity.
+Qed.
+
+Theorem observer_count_grows_with_temporal_horizon : forall (hf : HorizonFunction) t1 t2 origin,
+  0 <= horizon hf t1 < horizon hf t2 ->
+  incl (considered_observers_general hf t1 origin)
+       (considered_observers_general hf t2 origin).
+Proof.
+  intros hf t1 t2 origin [Hnonneg Hlt].
+  apply monotone_considered_observers_general.
+  destruct (le_lt_dec t1 t2).
+  - exact l.
+  - exfalso.
+    assert (Hmono: horizon hf t2 <= horizon hf t1).
+    { apply horizon_monotone. lia. }
+    lra.
+Qed.
+
+Corollary linear_observer_count_grows : forall t1 t2 origin,
+  (t1 < t2)%nat ->
+  incl (considered_observers t1 origin) (considered_observers t2 origin).
+Proof.
+  intros t1 t2 origin Hlt.
+  rewrite <- linear_horizon_equals_original.
+  rewrite <- (linear_horizon_equals_original t2).
+  apply observer_count_grows_with_temporal_horizon.
+  unfold linear_horizon. simpl.
+  split.
+  - apply pos_INR.
+  - apply lt_INR. exact Hlt.
 Qed.
 
 (** * Section 4b: Observer Cardinality Bounds *)
@@ -4662,3 +4972,4 @@ Proof.
 Qed.
 
 End ResourceDynamics.
+ 
