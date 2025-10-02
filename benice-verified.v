@@ -1644,6 +1644,60 @@ Proof.
     exact Hgoal.
 Qed.
 
+(** ** Physical Survival Probability (Distance-Attenuated)
+
+    Uses the distance-attenuated elimination probability, making the
+    "finite speed of information" story materially meaningful. *)
+
+Definition survival_probability_phys (a : Action) (observers : list Observer) (event_pos : State) : R :=
+  fold_right Rmult 1 (map (fun o => 1 - elimination_probability_with_distance a o event_pos) observers).
+
+(** Physical survival probability is bounded. *)
+Lemma survival_probability_phys_bounds : forall a observers event_pos,
+  0 <= survival_probability_phys a observers event_pos <= 1.
+Proof.
+  intros a observers event_pos.
+  unfold survival_probability_phys.
+  induction observers as [|o rest IH].
+  - simpl. split; lra.
+  - simpl. split.
+    + apply Rmult_le_pos.
+      * assert (H := elimination_probability_with_distance_bounds a o event_pos). lra.
+      * apply IH.
+    + apply Rle_trans with ((1 - 0) * 1).
+      * apply Rmult_le_compat.
+        -- assert (H := elimination_probability_with_distance_bounds a o event_pos). lra.
+        -- apply IH.
+        -- assert (H := elimination_probability_with_distance_bounds a o event_pos). lra.
+        -- apply IH.
+      * ring_simplify. apply Rle_refl.
+Qed.
+
+(** When action preserves resources, physical survival is 1. *)
+Lemma survival_probability_phys_preserving : forall a observers event_pos,
+  preserves_resources a ->
+  survival_probability_phys a observers event_pos = 1.
+Proof.
+  intros a observers event_pos Hpres.
+  unfold survival_probability_phys.
+  induction observers as [|o rest IH].
+  - simpl. reflexivity.
+  - simpl.
+    assert (Helim: elimination_probability_with_distance a o event_pos = 0).
+    { unfold elimination_probability_with_distance.
+      assert (Hdest_zero: resource_destruction a = 0).
+      { apply resource_destruction_preserving. exact Hpres. }
+      rewrite Hdest_zero.
+      unfold signal_strength.
+      rewrite Rabs_R0.
+      unfold Rdiv.
+      rewrite Rmult_0_l.
+      destruct (Rle_dec 0 0); [reflexivity | lra]. }
+    rewrite Helim.
+    ring_simplify.
+    exact IH.
+Qed.
+
 Definition exponential_elimination : EliminationFunction.
 Proof.
   apply (mkElimination elimination_probability).
@@ -2859,6 +2913,201 @@ Qed.
 
 (** * Section 6: Convergence Analysis *)
 
+(** ** Physical Model Optimality
+
+    Using distance-attenuated elimination, making the finite-speed story meaningful. *)
+
+(** Helper: Fold product bound for physical survival. *)
+Lemma fold_phys_bound : forall a event_pos observers,
+  0 <= fold_right Rmult 1
+    (map (fun o => 1 - elimination_probability_with_distance a o event_pos) observers) <= 1.
+Proof.
+  intros a event_pos observers.
+  induction observers.
+  - simpl. split; lra.
+  - simpl. split.
+    + apply Rmult_le_pos.
+      * assert (H := elimination_probability_with_distance_bounds a a0 event_pos). destruct H. lra.
+      * apply IHobservers.
+    + apply Rle_trans with ((1 - 0) * 1).
+      * apply Rmult_le_compat.
+        -- assert (H := elimination_probability_with_distance_bounds a a0 event_pos). destruct H. lra.
+        -- apply IHobservers.
+        -- assert (H := elimination_probability_with_distance_bounds a a0 event_pos). destruct H. lra.
+        -- apply IHobservers.
+      * ring_simplify. apply Rle_refl.
+Qed.
+
+(** Helper: Positive elimination when destroying and distance >= 0. *)
+Lemma elimination_probability_with_distance_positive : forall a o event_pos,
+  destroys_resources a ->
+  norm_state (state_sub (obs_position o) event_pos) >= 0 ->
+  elimination_probability_with_distance a o event_pos > 0.
+Proof.
+  intros a o event_pos Hdest Hdist_ge.
+  unfold elimination_probability_with_distance.
+  assert (Hdest_pos: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  assert (Hsig_pos: signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) event_pos)) > 0).
+  { unfold signal_strength.
+    apply Rmult_lt_0_compat.
+    - apply Rabs_pos_lt. lra.
+    - apply Rinv_0_lt_compat. lra. }
+  destruct (Rle_dec (signal_strength (resource_destruction a) (norm_state (state_sub (obs_position o) event_pos))) 0); [lra|].
+  apply Rlt_0_minus.
+  rewrite <- exp_0.
+  apply exp_increasing.
+  unfold Rdiv.
+  rewrite <- Ropp_mult_distr_l.
+  apply Ropp_lt_cancel.
+  rewrite Ropp_0, Ropp_involutive.
+  apply Rmult_lt_0_compat; [exact Hsig_pos | apply Rinv_0_lt_compat; apply obs_threshold_pos].
+Qed.
+
+(** Preservation is optimal under the physical model. *)
+Theorem preservation_optimal_phys : forall a observers event_pos,
+  survival_probability_phys preserving_action observers event_pos >=
+  survival_probability_phys a observers event_pos.
+Proof.
+  intros a observers event_pos.
+  rewrite survival_probability_phys_preserving by apply preserving_action_preserves.
+  apply Rle_ge.
+  apply survival_probability_phys_bounds.
+Qed.
+
+(** Strict optimality under physical model. *)
+Theorem preservation_strictly_optimal_phys : forall a observers event_pos,
+  destroys_resources a ->
+  observers <> [] ->
+  survival_probability_phys preserving_action observers event_pos >
+  survival_probability_phys a observers event_pos.
+Proof.
+  intros a observers event_pos Hdest Hne.
+  assert (Hpres_eq_1: survival_probability_phys preserving_action observers event_pos = 1).
+  { apply survival_probability_phys_preserving. apply preserving_action_preserves. }
+  rewrite Hpres_eq_1.
+  unfold survival_probability_phys.
+  destruct observers as [|o rest]; [contradiction|].
+  simpl.
+  assert (Helim_pos: elimination_probability_with_distance a o event_pos > 0).
+  { apply elimination_probability_with_distance_positive.
+    - exact Hdest.
+    - apply norm_state_nonneg. }
+  assert (Hfactor_lt_1: 1 - elimination_probability_with_distance a o event_pos < 1).
+  { assert (Hbnd := elimination_probability_with_distance_bounds a o event_pos).
+    destruct Hbnd as [Hlower Hupper].
+    apply Rplus_lt_reg_l with (elimination_probability_with_distance a o event_pos - 1).
+    replace (elimination_probability_with_distance a o event_pos - 1 + (1 - elimination_probability_with_distance a o event_pos)) with 0 by ring.
+    replace (elimination_probability_with_distance a o event_pos - 1 + 1) with (elimination_probability_with_distance a o event_pos) by ring.
+    exact Helim_pos. }
+  assert (Hrest_bound: 0 <= fold_right Rmult 1
+    (map (fun o0 => 1 - elimination_probability_with_distance a o0 event_pos) rest) <= 1).
+  { apply fold_phys_bound. }
+  apply Rle_lt_trans with ((1 - elimination_probability_with_distance a o event_pos) * 1).
+  - apply Rmult_le_compat_l.
+    + assert (H := elimination_probability_with_distance_bounds a o event_pos). lra.
+    + apply Hrest_bound.
+  - rewrite Rmult_1_r. exact Hfactor_lt_1.
+Qed.
+
+(** ** Asymptotic Dominance: Horizon → ∞
+
+    As the horizon grows, more observers enter, making preservation strictly dominate. *)
+
+(** Physical utility using distance-attenuated survival. *)
+Definition utility_phys (a : Action) (observers : list Observer) (event_pos : State) : R :=
+  survival_probability_phys a observers event_pos.
+
+(** As observer count increases, destructive survival decreases. *)
+Lemma phys_survival_decreases_with_observers : forall a event_pos o observers,
+  destroys_resources a ->
+  survival_probability_phys a (o :: observers) event_pos <=
+  survival_probability_phys a observers event_pos.
+Proof.
+  intros a event_pos o observers Hdest.
+  unfold survival_probability_phys.
+  simpl.
+  assert (Hfactor_le_1: 1 - elimination_probability_with_distance a o event_pos <= 1).
+  { assert (H := elimination_probability_with_distance_bounds a o event_pos).
+    destruct H as [Hlower Hupper]. lra. }
+  assert (Hrest_bound := fold_phys_bound a event_pos observers).
+  apply Rle_trans with (1 * fold_right Rmult 1
+    (map (fun o0 => 1 - elimination_probability_with_distance a o0 event_pos) observers)).
+  - apply Rmult_le_compat_r.
+    + apply Hrest_bound.
+    + exact Hfactor_le_1.
+  - rewrite Rmult_1_l. apply Rle_refl.
+Qed.
+
+(** ** Light-Cone Causality: Connecting to can_observe
+
+    Only observers who can causally observe the event should matter. *)
+
+(** Filter observers by light-cone causality. *)
+Definition observable_observers (observers : list Observer) (event_pos : State) (event_time : R) : list Observer :=
+  filter (fun o => if Rle_dec (obs_time o + norm_state (state_sub (obs_position o) event_pos) / c) event_time
+                   then true else false) observers.
+
+(** Survival with only causally-connected observers. *)
+Definition survival_probability_causal (a : Action) (observers : list Observer) (event_pos : State) (event_time : R) : R :=
+  survival_probability_phys a (observable_observers observers event_pos event_time) event_pos.
+
+(** Observable observers is a subset. *)
+Lemma observable_observers_subset : forall observers event_pos event_time,
+  incl (observable_observers observers event_pos event_time) observers.
+Proof.
+  intros observers event_pos event_time.
+  unfold observable_observers.
+  apply incl_filter.
+Qed.
+
+(** Filtering preserves bounds. *)
+Lemma survival_causal_bounds : forall a observers event_pos event_time,
+  0 <= survival_probability_causal a observers event_pos event_time <= 1.
+Proof.
+  intros a observers event_pos event_time.
+  unfold survival_probability_causal.
+  apply survival_probability_phys_bounds.
+Qed.
+
+(** Preservation optimal even with light-cone filtering. *)
+Theorem preservation_optimal_causal : forall a observers event_pos event_time,
+  survival_probability_causal preserving_action observers event_pos event_time >=
+  survival_probability_causal a observers event_pos event_time.
+Proof.
+  intros a observers event_pos event_time.
+  unfold survival_probability_causal.
+  apply preservation_optimal_phys.
+Qed.
+
+(** Strict optimality with light-cone causality. *)
+Theorem preservation_strictly_optimal_causal : forall a observers event_pos event_time,
+  destroys_resources a ->
+  observable_observers observers event_pos event_time <> [] ->
+  survival_probability_causal preserving_action observers event_pos event_time >
+  survival_probability_causal a observers event_pos event_time.
+Proof.
+  intros a observers event_pos event_time Hdest Hne.
+  unfold survival_probability_causal.
+  apply preservation_strictly_optimal_phys; assumption.
+Qed.
+
+(** Observers can observe implies causally connected. *)
+Lemma can_observe_implies_in_observable : forall o observers event_pos event_time,
+  In o observers ->
+  can_observe o event_pos event_time ->
+  In o (observable_observers observers event_pos event_time).
+Proof.
+  intros o observers event_pos event_time Ho Hcan.
+  unfold observable_observers.
+  apply filter_In.
+  split; [exact Ho|].
+  unfold can_observe in Hcan.
+  destruct (Rle_dec (obs_time o + norm_state (state_sub (obs_position o) event_pos) / c) event_time).
+  - reflexivity.
+  - exfalso. lra.
+Qed.
+
 (** A strategy is optimal if it maximizes utility. *)
 Definition is_optimal (a : Action) (comp : computational_capacity) (origin : State) : Prop :=
   forall a', utility a comp origin >= utility a' comp origin.
@@ -3177,6 +3426,40 @@ Proof.
   apply resource_destruction_destroying.
   assumption.
   apply preserving_action_preserves.
+Qed.
+
+(** Strict version: Resource preservation strictly dominates all destructive strategies. *)
+Theorem preservation_dominates_asymptotically_strict :
+  forall origin,
+  exists N, forall comp a, (comp > N)%nat ->
+  destroys_resources a ->
+  utility preserving_action comp origin > utility a comp origin.
+Proof.
+  intros origin.
+  exists 1%nat.
+  intros comp a Hcomp Hdest.
+  rewrite utility_preserving_equals_one.
+  unfold utility.
+  assert (Hne: considered_observers comp origin <> []).
+  { unfold considered_observers.
+    apply enumerate_grid_observers_nonempty.
+    split. lra.
+    unfold observation_horizon.
+    assert (Hc: c > 10) by apply c_reasonable.
+    assert (Hcomp_ge: INR comp >= 1).
+    { change 1 with (INR 1). apply Rle_ge. apply le_INR. lia. }
+    assert (Hprod: INR comp * c >= 1 * c).
+    { apply Rmult_ge_compat_r; [left; exact c_positive | exact Hcomp_ge]. }
+    unfold Rdiv.
+    assert (H1: c > 0) by apply c_positive.
+    apply Rmult_lt_reg_r with 10; [lra|].
+    rewrite Rmult_assoc, Rinv_l; [|lra].
+    rewrite Rmult_1_r, Rmult_1_l.
+    assert (Hge: 1 * c = c) by ring.
+    lra. }
+  apply survival_grid_strict_less_than_one.
+  - apply resource_destruction_destroying. exact Hdest.
+  - exact Hne.
 Qed.
 
 Definition is_optimal_general (hf : HorizonFunction) (a : Action) (comp : computational_capacity) (origin : State) : Prop :=
@@ -3976,6 +4259,60 @@ Proof.
   assert (Hbnd := survival_probability_bounds (destructive_action factor) (considered_observers comp origin)).
   unfold utility.
   lra.
+Qed.
+
+(** Strict version with quantitative bound using closed form. *)
+Theorem gap_strict_positive : forall origin factor comp,
+  0 < factor < 1 ->
+  (0 < comp)%nat ->
+  utility preserving_action comp origin - utility (destructive_action factor) comp origin > 0.
+Proof.
+  intros origin factor comp [Hfactor_pos Hfactor_lt1] Hcomp_pos.
+  rewrite utility_preserving_constant.
+  unfold utility, Rminus.
+  assert (Hne: considered_observers comp origin <> []).
+  { unfold considered_observers.
+    apply enumerate_grid_observers_nonempty.
+    split. lra.
+    unfold observation_horizon.
+    assert (Hc: c > 10) by apply c_reasonable.
+    assert (Hcomp_ge: INR comp >= 1).
+    { change 1 with (INR 1). apply Rle_ge. apply le_INR. lia. }
+    assert (Hprod: INR comp * c >= 1 * c).
+    { apply Rmult_ge_compat_r; [left; exact c_positive | exact Hcomp_ge]. }
+    unfold Rdiv.
+    apply Rmult_lt_reg_r with 10; [lra|].
+    rewrite Rmult_assoc, Rinv_l; [|lra].
+    rewrite Rmult_1_r, Rmult_1_l.
+    lra. }
+  assert (Hdest: destroys_resources (destructive_action factor)).
+  { apply destructive_action_destroys. split; assumption. }
+  assert (Hlt1: survival_probability (destructive_action factor) (considered_observers comp origin) < 1).
+  { apply survival_grid_strict_less_than_one.
+    - apply resource_destruction_destroying. exact Hdest.
+    - exact Hne. }
+  lra.
+Qed.
+
+(** Quantitative gap using the closed form. *)
+Theorem gap_quantitative : forall origin a comp,
+  (0 < comp)%nat ->
+  destroys_resources a ->
+  let Delta := resource_destruction a in
+  let N := length (considered_observers comp origin) in
+  utility preserving_action comp origin - utility a comp origin =
+    1 - exp (- Rabs Delta) ^ N.
+Proof.
+  intros origin a comp Hcomp Hdest Delta N.
+  rewrite utility_preserving_constant.
+  unfold utility, Delta, N, considered_observers.
+  assert (Hdelta_pos: resource_destruction a > 0).
+  { apply resource_destruction_destroying. exact Hdest. }
+  rewrite survival_grid_gap_formula by exact Hdelta_pos.
+  assert (Heq: Rabs (resource_destruction a) = resource_destruction a).
+  { apply Rabs_right. lra. }
+  rewrite Heq.
+  reflexivity.
 Qed.
 
 Lemma filter_preserves_product_bound : forall (a : Action) (l : list Observer),
