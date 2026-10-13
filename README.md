@@ -17,13 +17,17 @@ the cost of punishing, and in a population where every player is both agent and
 judge, the strategy that preserves, spares preservers and punishes destroyers is
 a Nash equilibrium at depth. The convergence survives any positive credence
 that a judge is present at a site, any positive fraction of the destruction that
-remains visible, and any time preference whose rate times the horizon stays
-bounded; it fails for a fixed positive rate, and for judges whose decisions are
-perfectly dependent. With the SI speed of light, judges at the stellar density
-of the solar neighbourhood and inverse-square attenuation on the scale of their
-spacing, the crossover for an act destroying one tolerance unit against an
-e-fold benefit lies within 230 years of planning horizon; at the density of
-bright galaxies, within 500 million years.
+remains visible, any time preference whose rate times the horizon stays
+bounded, and partial forfeiture of the benefit; it fails for a fixed positive
+exponential rate, and for judges whose decisions are perfectly dependent. With
+the SI speed of light, judges at the stellar density of the solar neighbourhood
+and inverse-square attenuation on the scale of their spacing, the crossover for
+an act destroying one tolerance unit against an e-fold benefit lies within 230
+years of planning horizon; at the density of bright galaxies, within 500
+million years. A variant that measures resources additively, filters the
+lattice by squared distance and lets judges respond by any law that vanishes at
+zero offense with positive slope proves the convergence from the two axioms
+beneath every comparison of real numbers alone.
 
 ## Modules
 
@@ -138,30 +142,66 @@ minimal depth lies between 60 and 62 million years and the crossover beyond
 WolframScript: the parsec in metres, the speed of light, the Julian year and
 the cube roots that fix the spacings.
 
+`Rational.v` is the axiom-light variant. Resources are measured by the l1 norm,
+the lattice is filtered by squared distance (`judges2`, `judges2_count_lower`,
+`hazard2_lower_bound`), attenuation is a law over the squared distance, and a
+judge responds to its signal by any law that is zero at zero, bounded by one
+and at least a positive multiple of x / (1 + x) (`ResponseLaw`); the rational
+law x / (1 + x) and the Poisson law 1 - exp(- x) are instances. For any such
+law and any weights above wmin on the horizon ball, survival is at most
+1 / (1 + wmin slope offense rate2 T / (1 + offense / tol))
+(`prod_one_minus_le_inv_sum`, `survival2_upper`), which gives convergence with
+an explicit depth (`survival2_vanishes`), the crossover (`crossover2`), the
+offense bound (`optimal_offense2_le`), the presence bound (`presence2_upper`),
+and a cap on the survival of an offender under hyperbolic time preference at
+every depth beyond 1 / r (`hyperbolic_cap`). The thesis in this form is
+`convergence_rational`, and at stellar density preservation overtakes any act
+destroying one tolerance unit for at most a two-fold benefit beyond 450 years
+(`stellar_crossover_rational`).
+
+`Necessity.v` shows which premises cannot be dropped. An agent with no stake in
+preservation is unconstrained (`self_preservation_necessary`); a judge with no
+stake in its own survival punishes preservers when that pays
+(`judge_stake_necessary`); a worthless preserver is punished when that pays
+(`victim_value_necessary`); and judges that place no value on prevented
+destruction never punish (`valuation_necessary`). Forfeiture of the whole
+benefit is not needed: forfeiting the fraction theta suffices when the
+unforfeited part of the offender's benefit is below the preserving benefit
+(`partial_forfeiture_crossover`).
+
 `Summary.v` states the thesis as `convergence_to_resource_preservation`, its
 extensions as `beyond_the_thesis`, and the two-level game as
 `two_level_equilibrium`, and prints the axioms each depends on.
 
+## Axioms
+
+Every comparison of real numbers in the standard library, down to `Rle_dec`,
+rests on `sig_forall_dec` and `functional_extensionality_dep`. The square root
+and the exponential add `sig_not_dec`, and the monotonicity of exp and the
+logarithm add `classic`. The theorems of `Survival.v`, `Resources.v`,
+`Judges.v`, `Population.v` and `Physical.v` therefore rest on all four, as
+`coqchk` and the `Print Assumptions` commands in `Summary.v` report. The
+theorems of `Rational.v`, including `convergence_rational` and
+`stellar_crossover_rational`, rest on the first two alone, and so does
+`frechet_bound`.
+
 ## Hypotheses
 
-The development rests on the four axioms of the standard library's
-construction of the real numbers: functional extensionality, excluded middle
-and the two Dedekind-reals axioms, as `coqchk` and the `Print Assumptions`
-commands in `Summary.v` report. Everything else is a stated premise of a
-theorem. The parameters c, res and tol are positive, which `Physical.v`
-discharges by instantiation. The agent values its own survival, 0 < benefit p,
-and so does a judge, 0 < b0; a preserver has positive value, 0 < phi, a
-destroyer a positive rate, 0 < delta, and prevented destruction a positive
-valuation, 0 < w. The model fixes the Poisson form of the elimination
-probability, equivalently the exponential credence over tolerances; the
-independence of the judges' decisions, justified by spacelike separation and
-shown necessary in `Independence.v`; the forfeiture of the whole benefit on
-elimination; time preference as a weight on each judge's verdict; the
-attribution of prevented destruction to the judge's credit; additive benefits
-and multiplicative survival across a player's decisions; and, in the population
-game, that every other player is nice. The remaining premises are the content
-of the theorems: a horizon beyond the stated depth, a time preference with r T
-bounded, a presence credence q > 0, a visibility v > 0.
+The parameters c, res and tol are positive, which `Physical.v` discharges by
+instantiation. The agent values its own survival, 0 < benefit p, and so does a
+judge, 0 < b0; a preserver has positive value, 0 < phi, a destroyer a positive
+rate, 0 < delta, and prevented destruction a positive valuation, 0 < w; each of
+these is shown necessary in `Necessity.v`. The model fixes the response law of a
+judge, which `Rational.v` relaxes to any law vanishing at zero offense with
+positive slope; the independence of the judges' decisions, justified by
+spacelike separation and shown necessary in `Independence.v`; the forfeiture of
+the benefit on elimination, which `Necessity.v` relaxes to a fraction; time
+preference as a weight on each judge's verdict; the attribution of prevented
+destruction to the judge's credit; additive benefits and multiplicative survival
+across a player's decisions; and, in the population game, that every other
+player is nice. The remaining premises are the content of the theorems: a
+horizon beyond the stated depth, a time preference with r T bounded, a presence
+credence q > 0, a visibility v > 0.
 
 ## Building and checking
 

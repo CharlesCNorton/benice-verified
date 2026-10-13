@@ -3,7 +3,7 @@
 From Stdlib Require Import Reals Lra Lia List ZArith Psatz.
 Import ListNotations.
 Open Scope R_scope.
-From BeNice Require Import Vectors Actions Sums LightCone Survival Resources Judges Independence Population Physical.
+From BeNice Require Import Vectors Actions Sums LightCone Survival Resources Judges Independence Population Physical Rational Necessity.
 
 (** * Section 13: The thesis in one theorem, for any speed of light, lattice spacing, tolerance, attenuation no steeper than inverse square, event position, resource state and benefit function. *)
 
@@ -108,3 +108,7 @@ Print Assumptions nash_exists.
 Print Assumptions frechet_bound.
 Print Assumptions stellar_crossover.
 Print Assumptions galactic_crossover.
+Print Assumptions convergence_rational.
+Print Assumptions stellar_crossover_rational.
+Print Assumptions partial_forfeiture_crossover.
+Print Assumptions self_preservation_necessary.
