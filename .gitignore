@@ -1,0 +1,13 @@
+*.vo
+*.vos
+*.vok
+*.glob
+*.aux
+.*.aux
+.lia.cache
+.nra.cache
+.csdp.cache
+.Makefile.d
+.coqdeps.d
+Makefile
+Makefile.conf
