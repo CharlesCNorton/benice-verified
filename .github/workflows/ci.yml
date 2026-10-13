@@ -24,8 +24,11 @@ jobs:
               sudo chown -R "$(id -u):$(id -g)" .
             endGroup
             startGroup "Build"
-              make
+              opam exec -- make
             endGroup
             startGroup "Check"
-              make check
+              opam exec -- make check
             endGroup
+      - name: Revert permissions
+        if: ${{ always() }}
+        run: sudo chown -R 1001:116 .
