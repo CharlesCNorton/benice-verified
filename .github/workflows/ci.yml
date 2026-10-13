@@ -1,0 +1,31 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - 'rocq/rocq-prover:9.0'
+          - 'rocq/rocq-prover:9.1'
+          - 'rocq/rocq-prover:9.2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: coq-community/docker-coq-action@v1
+        with:
+          custom_image: ${{ matrix.image }}
+          custom_script: |
+            startGroup "Permissions"
+              sudo chown -R "$(id -u):$(id -g)" .
+            endGroup
+            startGroup "Build"
+              make
+            endGroup
+            startGroup "Check"
+              make check
+            endGroup
