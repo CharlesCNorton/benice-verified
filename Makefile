@@ -1,9 +1,16 @@
-# Builds the development in dependency order and checks the compiled objects
-# with coqchk. Set COQBIN to the directory holding coqc and coqchk if they are
-# not on the PATH, with a trailing slash.
+# Builds the development in dependency order and checks the compiled objects.
+# Uses the rocq command when present and the legacy coqc and coqchk otherwise.
+# Set COQBIN to the directory holding the binaries, with a trailing slash, if
+# they are not on the PATH.
 COQBIN ?=
+ROCQ   := $(shell command -v $(COQBIN)rocq 2>/dev/null)
+ifneq ($(ROCQ),)
+COQC   := $(ROCQ) compile
+COQCHK := $(ROCQ) check
+else
 COQC   := $(COQBIN)coqc
 COQCHK := $(COQBIN)coqchk
+endif
 FLAGS  := -Q . BeNice
 
 VS  := Vectors.v Actions.v Sums.v LightCone.v Survival.v Resources.v Judges.v \

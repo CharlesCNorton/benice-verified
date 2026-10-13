@@ -23,6 +23,10 @@ jobs:
             startGroup "Permissions"
               sudo chown -R "$(id -u):$(id -g)" .
             endGroup
+            startGroup "Toolchain"
+              opam switch list
+              opam exec -- sh -c 'command -v rocq; command -v coqc; command -v coqchk; echo "PATH=$PATH"' || true
+            endGroup
             startGroup "Build"
               opam exec -- make
             endGroup
