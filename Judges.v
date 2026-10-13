@@ -109,6 +109,17 @@ Qed.
 Definition judge_benefit (b0 gain cost : R) (v : Verdict) : R :=
   match v with Punish => b0 + gain - cost | Ignore => b0 end.
 
+(** Prevented destruction valued at w per unit over a horizon T exceeds a fixed cost once T exceeds cost / (w * delta). *)
+Lemma gain_exceeds_cost : forall w delta cost T,
+  0 < w -> 0 < delta -> cost / (w * delta) < T -> cost < w * (delta * T).
+Proof.
+  intros w delta cost T Hw Hd H.
+  assert (Hwd : 0 < w * delta) by (apply Rmult_lt_0_compat; assumption).
+  apply Rmult_lt_compat_l with (r := w * delta) in H; [| exact Hwd].
+  replace (w * delta * (cost / (w * delta))) with cost in H by (field; lra).
+  lra.
+Qed.
+
 Section JudgesAsPlayers.
 
 Variable c : R.
@@ -162,19 +173,26 @@ Proof.
 Qed.
 
 (** The asymmetry assumed at the agent level is the behaviour of deep judges. *)
-Theorem derived_asymmetry : forall phi delta b0 gain cost xJ,
-  0 < phi -> 0 < delta -> 0 < b0 -> cost < gain ->
-  exists TJstar, forall TJ, TJstar < TJ -> phi / delta <= TJ ->
-    utility c res tol tol_pos A Verdict (judge_offense phi 0) (judge_benefit b0 gain cost) Punish xJ TJ <
-    utility c res tol tol_pos A Verdict (judge_offense phi 0) (judge_benefit b0 gain cost) Ignore xJ TJ /\
-    utility c res tol tol_pos A Verdict (judge_offense phi (delta * TJ)) (judge_benefit b0 gain cost) Ignore xJ TJ <
-    utility c res tol tol_pos A Verdict (judge_offense phi (delta * TJ)) (judge_benefit b0 gain cost) Punish xJ TJ.
+Theorem derived_asymmetry : forall phi delta b0 w cost xJ,
+  0 < phi -> 0 < delta -> 0 < b0 -> 0 < w ->
+  exists TJstar, forall TJ, TJstar < TJ ->
+    utility c res tol tol_pos A Verdict (judge_offense phi 0) (judge_benefit b0 0 cost) Punish xJ TJ <
+    utility c res tol tol_pos A Verdict (judge_offense phi 0) (judge_benefit b0 0 cost) Ignore xJ TJ /\
+    utility c res tol tol_pos A Verdict (judge_offense phi (delta * TJ)) (judge_benefit b0 (w * (delta * TJ)) cost) Ignore xJ TJ <
+    utility c res tol tol_pos A Verdict (judge_offense phi (delta * TJ)) (judge_benefit b0 (w * (delta * TJ)) cost) Punish xJ TJ.
 Proof.
-  intros phi delta b0 gain cost xJ Hphi Hd Hb0 Hgc.
-  destruct (deep_judges_spare_preservers phi b0 gain cost xJ Hphi Hb0) as [TJstar H].
-  exists TJstar; intros TJ HT Hpers; split.
-  - apply H; exact HT.
-  - apply deep_judges_punish_persistent_destroyers; assumption.
+  intros phi delta b0 w cost xJ Hphi Hd Hb0 Hw.
+  destruct (deep_judges_spare_preservers phi b0 0 cost xJ Hphi Hb0) as [TJ1 H1].
+  exists (Rmax TJ1 (Rmax (phi / delta) (cost / (w * delta)))).
+  intros TJ HT.
+  assert (HT1 : TJ1 < TJ) by (eapply Rle_lt_trans; [apply Rmax_l | exact HT]).
+  assert (HTd : phi / delta <= TJ).
+  { left; eapply Rle_lt_trans; [| exact HT]. eapply Rle_trans; [apply Rmax_l | apply Rmax_r]. }
+  assert (HTc : cost / (w * delta) < TJ).
+  { eapply Rle_lt_trans; [| exact HT]. eapply Rle_trans; [apply Rmax_r | apply Rmax_r]. }
+  split.
+  - apply H1; exact HT1.
+  - apply deep_judges_punish_persistent_destroyers; [exact Hd | exact HTd | apply gain_exceeds_cost; assumption].
 Qed.
 
 End JudgesAsPlayers.

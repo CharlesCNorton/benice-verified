@@ -12,13 +12,18 @@ explicit crossover depth beyond which preservation wins; the destructiveness of
 any optimal action falls like 1 / T; on any finite menu every optimal action is
 eventually preserving. The judges are players too: punishing a preserver is
 destruction under the same measure, so deep judges spare preservers and punish
-persistent destroyers, and in a population where every player is both agent
-and judge, the strategy that preserves, spares preservers and punishes
-destroyers is a Nash equilibrium at depth. The convergence survives any
-positive credence that a judge is present at a site, any positive fraction of
-the destruction that remains visible, and any time preference whose rate times
-the horizon stays bounded; it fails for a fixed positive rate, and for judges
-whose decisions are perfectly dependent.
+persistent destroyers once the destruction prevented over their horizon exceeds
+the cost of punishing, and in a population where every player is both agent and
+judge, the strategy that preserves, spares preservers and punishes destroyers is
+a Nash equilibrium at depth. The convergence survives any positive credence
+that a judge is present at a site, any positive fraction of the destruction that
+remains visible, and any time preference whose rate times the horizon stays
+bounded; it fails for a fixed positive rate, and for judges whose decisions are
+perfectly dependent. With the SI speed of light, judges at the stellar density
+of the solar neighbourhood and inverse-square attenuation on the scale of their
+spacing, the crossover for an act destroying one tolerance unit against an
+e-fold benefit lies within 230 years of planning horizon; at the density of
+bright galaxies, within 500 million years.
 
 ## Modules
 
@@ -90,8 +95,10 @@ preserver's resources, so the judge is a destroyer under the same measure: its
 survival vanishes with its own depth (`harsh_judge_survival_vanishes`) and deep
 judges spare preservers (`deep_judges_spare_preservers`). Punishing a persistent
 destroyer is net-preserving once the judge's horizon exceeds the destroyer's
-value over its destruction rate, and a judge whose gain exceeds its cost
-punishes (`deep_judges_punish_persistent_destroyers`, `derived_asymmetry`).
+value over its destruction rate, and the destruction prevented over the
+horizon, valued at any positive rate, exceeds any fixed cost once the horizon
+exceeds cost / (w delta) (`gain_exceeds_cost`), so deep judges punish
+(`deep_judges_punish_persistent_destroyers`, `derived_asymmetry`).
 
 `Independence.v` formalises couplings of the judges' decisions. The model's
 survival is the joint survival of the independent coupling
@@ -102,44 +109,72 @@ judges (`all_or_nothing_survival`).
 
 `Population.v` defines the population game. A strategy is an act, a verdict on
 preservers and a verdict on persistent destroyers; a player's benefit sums the
-three decisions and its one life survives all three judgments. When every other
-player preserves, spares preservers and punishes destroyers, that strategy is a
-best response for a deep player, and deviating to a destructive act or to
-punishing preservers is strictly worse (`nice_is_nash`).
+three decisions, punishing a preserver prevents nothing and punishing a
+destroyer prevents delta * T valued at w per unit, and its one life survives
+all three judgments. When every other player preserves, spares preservers and
+punishes destroyers, that strategy is a best response for a deep player
+whatever the signs of the benefits, and deviating to a destructive act or to
+punishing preservers is strictly worse (`nice_is_nash`); any finite menu that
+holds a preserving action of positive benefit holds one whose nice strategy is
+such an equilibrium (`best_preserving`, `nash_exists`).
+
+`Physical.v` instantiates the parameters. The speed of light is the SI value,
+distances are measured in the judge spacing, which is also the attenuation
+scale, destruction in units of tolerance, and attenuation is inverse square.
+For any spacing the minimal depth is four light-crossings of the spacing and
+the hazard rate per unit destruction is c / (32 spacing) per second
+(`depth_min_eq`, `hazard_rate_eq`); an act destroying one tolerance unit
+survives with probability at most one half, and loses to preservation against
+an e-fold benefit, once the horizon exceeds the minimal depth and the
+reciprocal hazard rate (`physical_half`, `physical_crossover`). At one judge
+per ten cubic parsecs, the stellar density within ten parsecs of the Sun, the
+minimal depth lies between 28 and 29 years, the hazard rate between 1.409e-10
+and 1.41e-10 per second, and both results hold beyond 230 years
+(`stellar_half_life`, `stellar_crossover`); at one judge in a million stars the
+crossover lies within 450 million years (`stellar_presence_example`). At one
+judge per hundred cubic megaparsecs, the density of bright galaxies, the
+minimal depth lies between 60 and 62 million years and the crossover beyond
+500 million years (`galactic_crossover`). The constants were checked against
+WolframScript: the parsec in metres, the speed of light, the Julian year and
+the cube roots that fix the spacings.
 
 `Summary.v` states the thesis as `convergence_to_resource_preservation`, its
 extensions as `beyond_the_thesis`, and the two-level game as
 `two_level_equilibrium`, and prints the axioms each depends on.
 
-## Assumptions
+## Hypotheses
 
-The theorems are parametric in the speed of light, the lattice spacing, which
-fixes the density of potential judges, their tolerance, the attenuation law, the
-event position, the resource state and the benefit function. The premises that
-carry the thesis are explicit: judges respond to destruction and not to
-preservation, which `Judges.v` derives for judges who themselves face judges
-and `Population.v` closes for a population of mutual judges; the judges'
-decisions are independent, which `LightCone.v` justifies by spacelike
-separation and `Independence.v` shows necessary; elimination forfeits the whole
-benefit; and the agent's time preference, if any, is bounded relative to its
-horizon, which `Survival.v` shows necessary. The exponential credence over
-tolerances gives the Poisson form of the elimination probability.
+The development rests on the four axioms of the standard library's
+construction of the real numbers: functional extensionality, excluded middle
+and the two Dedekind-reals axioms, as `coqchk` and the `Print Assumptions`
+commands in `Summary.v` report. Everything else is a stated premise of a
+theorem. The parameters c, res and tol are positive, which `Physical.v`
+discharges by instantiation. The agent values its own survival, 0 < benefit p,
+and so does a judge, 0 < b0; a preserver has positive value, 0 < phi, a
+destroyer a positive rate, 0 < delta, and prevented destruction a positive
+valuation, 0 < w. The model fixes the Poisson form of the elimination
+probability, equivalently the exponential credence over tolerances; the
+independence of the judges' decisions, justified by spacelike separation and
+shown necessary in `Independence.v`; the forfeiture of the whole benefit on
+elimination; time preference as a weight on each judge's verdict; the
+attribution of prevented destruction to the judge's credit; additive benefits
+and multiplicative survival across a player's decisions; and, in the population
+game, that every other player is nice. The remaining premises are the content
+of the theorems: a horizon beyond the stated depth, a time preference with r T
+bounded, a presence credence q > 0, a visibility v > 0.
 
 ## Building and checking
 
 The development uses the Rocq Prover 9.0 with its standard library and nothing
-else. `make` builds the modules in dependency order and `make check` runs
-`coqchk` on the result; set `COQBIN` to the directory of `coqc` with a trailing
-slash if it is not on the `PATH`. On Windows, `build.cmd` does the same with
-the Rocq Platform; on a Unix shell, `build.sh` does. The continuous
-integration workflow builds and checks against the Rocq 9.0, 9.1 and 9.2 images.
+else. `make` builds the modules in dependency order and `make check` runs the
+checker on the result, using `rocq compile` and `rocq check` where the `rocq`
+command exists and `coqc` and `coqchk` otherwise; set `COQBIN` to the directory
+of the binaries with a trailing slash if it is not on the `PATH`. On Windows,
+`build.cmd` does the same with the Rocq Platform; on a Unix shell, `build.sh`
+does. The continuous integration workflow builds and checks against the Rocq
+9.0, 9.1 and 9.2 images.
 
 ```
 make
 make check
 ```
-
-`coqchk` reports the axioms the development rests on: the two axioms of the
-standard library's construction of the real numbers, functional extensionality
-and excluded middle. The `Print Assumptions` commands at the end of `Summary.v`
-report the same for the summary theorems.

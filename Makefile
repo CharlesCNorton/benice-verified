@@ -14,7 +14,7 @@ endif
 FLAGS  := -Q . BeNice
 
 VS  := Vectors.v Actions.v Sums.v LightCone.v Survival.v Resources.v Judges.v \
-       Independence.v Population.v Summary.v
+       Independence.v Population.v Physical.v Summary.v
 VOS := $(VS:.v=.vo)
 
 all: $(VOS)
@@ -30,7 +30,8 @@ Resources.vo:    Survival.vo
 Judges.vo:       Survival.vo
 Independence.vo: Survival.vo
 Population.vo:   Resources.vo Judges.vo
-Summary.vo:      Resources.vo Judges.vo Independence.vo Population.vo
+Physical.vo:     Resources.vo
+Summary.vo:      Resources.vo Judges.vo Independence.vo Population.vo Physical.vo
 
 check: all
 	$(COQCHK) -silent -o $(FLAGS) BeNice.Summary
